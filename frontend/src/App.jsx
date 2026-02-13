@@ -33,8 +33,7 @@ function App() {
     setResults(null);
 
     const formData = new FormData();
-    // *** Updated key from 'resume_pdf' to 'resume_file' to match backend ***
-    formData.append('resume_file', resumeFile); 
+    formData.append('files', resumeFile); 
     formData.append('job_description', jobDescription);
 
     try {
@@ -78,7 +77,7 @@ function App() {
           {results.results.map((candidate) => (
             <div key={candidate.id} className="mb-8 bg-slate-900 p-6 rounded-xl shadow-lg">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-2xl font-semibold">{candidate.name}</h3>
+                <h3 className="text-2xl font-semibold">{candidate.filename}</h3>
                 <span className={`text-2xl font-bold ${candidate.score > 70 ? 'text-green-400' : candidate.score > 40 ? 'text-yellow-400' : 'text-red-400'}`}>
                   {candidate.score}% Match
                 </span>
@@ -89,8 +88,8 @@ function App() {
                 <div className="bg-slate-800 p-4 rounded-lg">
                   <h4 className="text-xl font-semibold mb-3">Breakdown</h4>
                   {/* Example of how data might be visualized */}
-                  <p>Keyword Score: {candidate.breakdown.keyword_score}%</p>
-                  <p>Semantic Score: {candidate.breakdown.semantic_score}%</p>
+                  <p>Keyword Score: {candidate.breakdown.keyword}%</p>
+                  <p>Semantic Score: {candidate.breakdown.semantic}%</p>
                   {/* Add actual radar chart component here */}
                 </div>
 
