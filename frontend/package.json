@@ -12,6 +12,7 @@
     "@emotion/react": "^11.11.4",
     "@emotion/styled": "^11.11.5",
     "@mui/material": "^5.15.15",
+    "@supabase/supabase-js": "^2.95.3",
     "axios": "^1.6.8",
     "clsx": "^2.1.1",
     "framer-motion": "^11.2.11",

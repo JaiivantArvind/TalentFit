@@ -2,12 +2,16 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Sparkles, BarChart3, History, Settings, LogOut } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
 
 function Navbar() {
   const navigate = useNavigate();
+  const { signOut, user } = useAuth();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Navigate first, then sign out to avoid ProtectedRoute redirect
     navigate('/');
+    await signOut();
   };
 
   return (

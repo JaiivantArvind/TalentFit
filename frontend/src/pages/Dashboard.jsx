@@ -2,8 +2,11 @@ import React, { useState } from 'react';
 import HeroSection from '../components/HeroSection.jsx';
 import { motion } from 'framer-motion';
 import axios from 'axios';
+import { supabase } from '../supabaseClient';
+import { useAuth } from '../context/AuthContext';
 
 function Dashboard() {
+  const { user } = useAuth();
   const [resumeFile, setResumeFile] = useState(null);
   const [jobDescription, setJobDescription] = useState('');
   const [jdFile, setJdFile] = useState(null);
@@ -58,20 +61,37 @@ function Dashboard() {
       setResults(response.data);
       console.log('Analysis Results:', response.data);
 
-      // Save to history in localStorage
-      if (response.data && response.data.results && response.data.results.length > 0) {
-        const historyRecord = {
-          id: Date.now(),
-          date: new Date().toISOString(),
-          jobTitle: jdFile ? jdFile.name.replace(/\.(pdf|docx|txt)$/i, '') : 'Job Analysis',
-          topCandidateScore: Math.max(...response.data.results.map(r => r.score)),
-          candidateCount: response.data.results.length,
-          results: response.data.results
-        };
+      // Save to Supabase history table
+      if (user && response.data && response.data.results && response.data.results.length > 0) {
+        const analysisResults = response.data.results;
+        const jobTitle = jdFile ? jdFile.name.replace(/\.(pdf|docx|txt)$/i, '') : 'Job Analysis';
+        
+        console.log('Attempting to save to history...');
+        console.log('User ID:', user.id);
+        console.log('Job Title:', jobTitle);
+        console.log('Candidate Count:', analysisResults.length);
+        console.log('Top Match Score:', Math.max(...analysisResults.map(c => c.score)));
+        
+        const { data: savedData, error: supabaseError } = await supabase
+          .from('history')
+          .insert([
+            {
+              user_id: user.id,
+              job_title: jobTitle,
+              candidate_count: analysisResults.length,
+              top_match_score: Math.max(...analysisResults.map(c => c.score)),
+              results: analysisResults // Store full JSON results
+            }
+          ])
+          .select();
 
-        const existingHistory = JSON.parse(localStorage.getItem('scanHistory') || '[]');
-        existingHistory.unshift(historyRecord); // Add to beginning
-        localStorage.setItem('scanHistory', JSON.stringify(existingHistory));
+        if (supabaseError) {
+          console.error('Error saving to history:', supabaseError);
+          console.error('Error details:', JSON.stringify(supabaseError, null, 2));
+        } else {
+          console.log('Analysis saved to history successfully!');
+          console.log('Saved data:', savedData);
+        }
       }
     } catch (err) {
       console.error('Error during analysis:', err);

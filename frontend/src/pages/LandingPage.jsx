@@ -90,7 +90,7 @@ function LandingPage() {
           <motion.button
             whileHover={{ scale: 1.05, y: -2 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/login', { state: { isSignUp: false } })}
             className="
               group flex items-center gap-3 px-10 py-5 rounded-2xl font-bold text-lg
               bg-gradient-to-r from-indigo-600 via-purple-600 to-rose-600
@@ -110,7 +110,7 @@ function LandingPage() {
           <motion.button
             whileHover={{ scale: 1.05, y: -2 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/login', { state: { isSignUp: true } })}
             className="
               group flex items-center gap-3 px-10 py-5 rounded-2xl font-bold text-lg
               bg-white/5 backdrop-blur-sm
