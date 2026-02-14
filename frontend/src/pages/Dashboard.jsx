@@ -6,12 +6,18 @@ import axios from 'axios';
 function Dashboard() {
   const [resumeFile, setResumeFile] = useState(null);
   const [jobDescription, setJobDescription] = useState('');
+  const [jdFile, setJdFile] = useState(null);
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
 
   const handleResumeUpload = (file) => {
     setResumeFile(file);
+    setError(null);
+  };
+
+  const handleJdFileUpload = (file) => {
+    setJdFile(file);
     setError(null);
   };
 
@@ -24,8 +30,8 @@ function Dashboard() {
       setError('Please upload a resume file.');
       return;
     }
-    if (!jobDescription.trim()) {
-      setError('Please provide a job description.');
+    if (!jobDescription.trim() && !jdFile) {
+      setError('Please provide a job description (text or file).');
       return;
     }
 
@@ -34,8 +40,14 @@ function Dashboard() {
     setResults(null);
 
     const formData = new FormData();
-    formData.append('files', resumeFile); 
-    formData.append('job_description', jobDescription);
+    formData.append('files', resumeFile);
+    
+    // Priority: If jdFile exists, use it; otherwise use text
+    if (jdFile) {
+      formData.append('jd_file', jdFile);
+    } else if (jobDescription.trim()) {
+      formData.append('job_description', jobDescription);
+    }
 
     try {
       const response = await axios.post('http://localhost:5000/analyze', formData, {
@@ -66,6 +78,8 @@ function Dashboard() {
         onFileUpload={handleResumeUpload}
         jobDescription={jobDescription}
         onJobDescriptionChange={handleJobDescriptionChange}
+        jdFile={jdFile}
+        onJdFileUpload={handleJdFileUpload}
         processing={processing}
         onSubmitAnalysis={handleSubmitAnalysis}
         file={resumeFile}
@@ -241,6 +255,7 @@ function Dashboard() {
                 setResults(null);
                 setResumeFile(null);
                 setJobDescription('');
+                setJdFile(null);
                 setError(null);
               }}
               className="px-8 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-indigo-600 to-rose-600 hover:from-indigo-500 hover:to-rose-500 transition-all duration-300 shadow-[0_8px_32px_0_rgba(99,102,241,0.3)] hover:shadow-[0_8px_32px_0_rgba(99,102,241,0.5)] border border-white/10"

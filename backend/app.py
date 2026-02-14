@@ -125,11 +125,24 @@ def analyze():
         print(f"\n{'='*60}", flush=True)
         print("📥 New analyze request received", flush=True)
         
-        # Get job description from form
-        job_description = request.form.get('job_description', '')
+        # Get job description - prefer file over text
+        jd_file = request.files.get('jd_file')
+        jd_text = request.form.get('job_description', '')
         
-        if not job_description:
-            return jsonify({'error': 'Job description is required'}), 400
+        job_description = ''
+        
+        # Priority: If file is provided, use it; otherwise use text
+        if jd_file:
+            print(f"📄 JD File received: {jd_file.filename}", flush=True)
+            job_description = extract_text(jd_file)
+            if not job_description:
+                return jsonify({'error': 'Could not extract text from JD file'}), 400
+            print(f"✓ Extracted {len(job_description)} chars from JD file", flush=True)
+        elif jd_text:
+            job_description = jd_text
+            print(f"📋 JD text received: {len(job_description)} chars", flush=True)
+        else:
+            return jsonify({'error': 'Job description (text or file) is required'}), 400
         
         print(f"📋 Job description length: {len(job_description)} chars", flush=True)
         

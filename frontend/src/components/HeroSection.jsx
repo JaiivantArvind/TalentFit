@@ -1,11 +1,13 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { UploadCloud, CheckCircle, XCircle, FileText, Search } from 'lucide-react'; // Added Search icon
+import { motion, AnimatePresence } from 'framer-motion';
+import { UploadCloud, CheckCircle, XCircle, FileText, Search, Type, Upload } from 'lucide-react';
 
-const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptionChange, onSubmitAnalysis, file }) => {
+const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptionChange, onSubmitAnalysis, file, jdFile, onJdFileUpload }) => {
   const [dragActive, setDragActive] = useState(false);
-  // Removed local 'file' state as it's now passed via props
-  const [error, setError] = useState(null); // Local error for file type validation
+  const [jdDragActive, setJdDragActive] = useState(false);
+  const [jdTab, setJdTab] = useState('text'); // 'text' or 'file'
+  const [error, setError] = useState(null);
+  const [jdError, setJdError] = useState(null);
 
   const handleDrag = useCallback((e) => {
     e.preventDefault();
@@ -14,6 +16,16 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
       setDragActive(true);
     } else if (e.type === 'dragleave') {
       setDragActive(false);
+    }
+  }, []);
+
+  const handleJdDrag = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setJdDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setJdDragActive(false);
     }
   }, []);
 
@@ -27,6 +39,16 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
     }
   }, [onFileUpload]);
 
+  const handleJdDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setJdDragActive(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const uploadedFile = e.dataTransfer.files[0];
+      validateAndSetJdFile(uploadedFile);
+    }
+  }, [onJdFileUpload]);
+
   const handleChange = useCallback((e) => {
     e.preventDefault();
     if (e.target.files && e.target.files[0]) {
@@ -35,33 +57,60 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
     }
   }, [onFileUpload]);
 
+  const handleJdChange = useCallback((e) => {
+    e.preventDefault();
+    if (e.target.files && e.target.files[0]) {
+      const uploadedFile = e.target.files[0];
+      validateAndSetJdFile(uploadedFile);
+    }
+  }, [onJdFileUpload]);
+
   const validateAndSetFile = (uploadedFile) => {
     const allowedTypes = [
       'application/pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-      'text/plain', // .txt
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
     ];
     if (!allowedTypes.includes(uploadedFile.type)) {
       setError('Unsupported file type. Please upload a PDF, DOCX, or TXT file.');
-      // Do not call onFileUpload if validation fails, ensure file state in App.jsx remains null or previous
       onFileUpload(null);
       return;
     }
     setError(null);
-    onFileUpload(uploadedFile); // Pass the file to the parent component
+    onFileUpload(uploadedFile);
   };
 
-  const fileInputRef = useRef(null); // Changed to useRef
+  const validateAndSetJdFile = (uploadedFile) => {
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+    ];
+    if (!allowedTypes.includes(uploadedFile.type)) {
+      setJdError('Unsupported file type. Please upload a PDF, DOCX, or TXT file.');
+      onJdFileUpload(null);
+      return;
+    }
+    setJdError(null);
+    onJdFileUpload(uploadedFile);
+  };
+
+  const fileInputRef = useRef(null);
+  const jdFileInputRef = useRef(null);
 
   const handleButtonClick = () => {
     fileInputRef.current.click();
   };
 
-  const isFormValid = file && jobDescription.trim() !== '';
+  const handleJdButtonClick = () => {
+    jdFileInputRef.current.click();
+  };
+
+  const isFormValid = file && (jobDescription.trim() !== '' || jdFile);
 
   return (
     <section className="relative min-h-screen bg-[#030303] text-slate-100 flex flex-col items-center justify-center p-4 overflow-hidden">
-      {/* Background Gradient Effect - Matching HeroGeometric */}
+      {/* Background Gradient Effect */}
       <div className="absolute inset-0 z-0">
         <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.05] via-transparent to-rose-500/[0.05] blur-3xl"></div>
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-500/10 rounded-full mix-blend-lighten filter blur-3xl opacity-70 animate-blob"></div>
@@ -98,7 +147,7 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
             relative flex flex-col items-center justify-center p-8 border-2 border-dashed
             rounded-3xl backdrop-blur-xl bg-white/[0.03] bg-opacity-40 mb-8
             transition-all duration-300 ease-in-out
-            ${dragActive ? 'border-indigo-400/50 scale-105' : 'border-white/[0.08]'}
+            ${dragActive ? 'border-indigo-400/50 scale-105 shadow-[0_0_30px_rgba(99,102,241,0.3)]' : 'border-white/[0.08]'}
             ${error ? 'border-rose-500/50' : ''}
             hover:border-indigo-400/50 hover:-translate-y-1 hover:shadow-[0_8px_32px_0_rgba(99,102,241,0.15)]
             group
@@ -184,29 +233,142 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
           )}
         </motion.div>
 
-        {/* Job Description Input */}
+        {/* Job Description Section with Tabs */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.6 }}
           className="relative z-10 w-full"
         >
-          <label htmlFor="job-description" className="block text-white/70 text-lg font-semibold mb-2 text-left">
-            Paste Job Description
+          <label className="block text-white/70 text-lg font-semibold mb-3 text-left">
+            Job Description
           </label>
-          <textarea
-            id="job-description"
-            rows="8"
-            value={jobDescription}
-            onChange={onJobDescriptionChange}
-            className="
-              w-full p-4 rounded-xl backdrop-blur-xl bg-white/[0.03]
-              border border-white/[0.08] text-white/90 placeholder-white/30
-              focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent
-              transition-all duration-300 ease-in-out resize-none
-            "
-            placeholder="e.g., 'We are looking for a Senior Software Engineer with expertise in React, Node.js, and AWS...'"
-          ></textarea>
+
+          {/* Tabs */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setJdTab('text')}
+              className={`
+                flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200
+                ${jdTab === 'text' 
+                  ? 'bg-indigo-600 text-white shadow-lg' 
+                  : 'bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white/80'
+                }
+              `}
+            >
+              <Type className="w-4 h-4" />
+              Paste Text
+            </button>
+            <button
+              onClick={() => setJdTab('file')}
+              className={`
+                flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-200
+                ${jdTab === 'file' 
+                  ? 'bg-indigo-600 text-white shadow-lg' 
+                  : 'bg-white/[0.03] text-white/60 hover:bg-white/[0.06] hover:text-white/80'
+                }
+              `}
+            >
+              <Upload className="w-4 h-4" />
+              Upload File
+            </button>
+          </div>
+
+          {/* Tab Content */}
+          <AnimatePresence mode="wait">
+            {jdTab === 'text' ? (
+              <motion.div
+                key="text-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                <textarea
+                  rows="8"
+                  value={jobDescription}
+                  onChange={onJobDescriptionChange}
+                  className="
+                    w-full p-4 rounded-xl backdrop-blur-xl bg-white/[0.03]
+                    border border-white/[0.08] text-white/90 placeholder-white/30
+                    focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-transparent
+                    transition-all duration-300 ease-in-out resize-none
+                  "
+                  placeholder="e.g., 'We are looking for a Senior Software Engineer with expertise in React, Node.js, and AWS...'"
+                ></textarea>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="file-tab"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.2 }}
+                className={`
+                  relative flex flex-col items-center justify-center p-8 border-2 border-dashed
+                  rounded-xl backdrop-blur-xl bg-white/[0.03]
+                  transition-all duration-300 ease-in-out
+                  ${jdDragActive ? 'border-purple-400/50 scale-105 shadow-[0_0_30px_rgba(168,85,247,0.3)]' : 'border-white/[0.08]'}
+                  ${jdError ? 'border-rose-500/50' : ''}
+                  hover:border-purple-400/50 hover:shadow-[0_8px_32px_0_rgba(168,85,247,0.15)]
+                  group cursor-pointer
+                `}
+                onDragEnter={handleJdDrag}
+                onDragLeave={handleJdDrag}
+                onDragOver={handleJdDrag}
+                onDrop={handleJdDrop}
+                onClick={handleJdButtonClick}
+              >
+                <input
+                  ref={jdFileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleJdChange}
+                  accept=".pdf,.docx,.txt"
+                />
+                <motion.div
+                  initial={{ scale: 0.8 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 200 }}
+                  className={`
+                    mb-3 p-2 rounded-full
+                    ${jdFile ? 'bg-purple-500/80 shadow-[0_8px_32px_0_rgba(168,85,247,0.3)]' : 'bg-gradient-to-r from-purple-500 to-pink-500 group-hover:from-purple-400 group-hover:to-pink-400'}
+                    transition-all duration-300 ease-in-out
+                    group-hover:scale-110
+                  `}
+                >
+                  {jdFile ? (
+                    <CheckCircle className="w-6 h-6 text-white" />
+                  ) : (
+                    <Upload className="w-6 h-6 text-white" />
+                  )}
+                </motion.div>
+                {jdFile ? (
+                  <div className="text-sm font-medium text-slate-200 flex items-center">
+                    <FileText className="w-4 h-4 mr-2 text-purple-300" />
+                    {jdFile.name}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-white/80 mb-1">
+                      Drop JD file here or click to browse
+                    </p>
+                    <p className="text-xs text-white/40">PDF, DOCX, or TXT</p>
+                  </>
+                )}
+                {jdError && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-3 text-rose-400 flex items-center text-sm"
+                  >
+                    <XCircle className="w-4 h-4 mr-2" />
+                    {jdError}
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
 
         {/* Analyze Button */}
