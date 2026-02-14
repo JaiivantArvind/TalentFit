@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, FileText, TrendingUp, Calendar, Users, Award, Trash2 } from 'lucide-react';
+import { Clock, FileText, TrendingUp, Calendar, Users, Award, Trash2, Download } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 function History() {
   const { user } = useAuth();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [downloadingPDF, setDownloadingPDF] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -47,6 +50,94 @@ function History() {
       setHistory(history.filter(record => record.id !== id));
     } catch (error) {
       console.error('Error deleting record:', error.message);
+    }
+  };
+
+  const handleDownloadHistoryPDF = async () => {
+    setDownloadingPDF(true);
+    try {
+      const reportElement = document.getElementById('history-detail-report');
+      if (!reportElement) {
+        console.error('Report element not found');
+        return;
+      }
+
+      // Temporarily apply white background for PDF
+      const originalBg = reportElement.style.backgroundColor;
+      reportElement.style.backgroundColor = '#ffffff';
+      
+      // Temporarily change text colors to dark for readability
+      const allTextElements = reportElement.querySelectorAll('*');
+      const originalColors = [];
+      allTextElements.forEach((el, idx) => {
+        originalColors[idx] = {
+          color: el.style.color,
+          borderColor: el.style.borderColor,
+          backgroundColor: el.style.backgroundColor
+        };
+        
+        // Make text dark and readable
+        const computedStyle = window.getComputedStyle(el);
+        if (computedStyle.color && computedStyle.color.includes('rgb')) {
+          el.style.color = '#1e293b';
+        }
+        
+        // Handle borders
+        if (el.style.borderColor && el.style.borderColor.includes('rgba')) {
+          el.style.borderColor = '#e2e8f0';
+        }
+        
+        // Handle backgrounds with transparency
+        if (el.style.backgroundColor && (el.style.backgroundColor.includes('rgba') || el.style.backgroundColor === 'transparent')) {
+          el.style.backgroundColor = '#ffffff';
+        }
+      });
+
+      // Capture the element
+      const canvas = await html2canvas(reportElement, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true
+      });
+
+      // Restore original styles
+      reportElement.style.backgroundColor = originalBg;
+      allTextElements.forEach((el, idx) => {
+        if (originalColors[idx]) {
+          el.style.color = originalColors[idx].color;
+          el.style.borderColor = originalColors[idx].borderColor;
+          el.style.backgroundColor = originalColors[idx].backgroundColor;
+        }
+      });
+
+      // Create PDF
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const imgX = (pdfWidth - imgWidth * ratio) / 2;
+      const imgY = 10;
+
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+
+      // Generate filename with date and job title
+      const date = new Date(selectedRecord.created_at).toISOString().split('T')[0];
+      const jobTitle = selectedRecord.job_title.replace(/[^a-zA-Z0-9]/g, '_');
+      pdf.save(`TalentFit_${jobTitle}_${date}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setDownloadingPDF(false);
     }
   };
 
@@ -239,16 +330,37 @@ function History() {
                   <h2 className="text-2xl font-bold text-white">{selectedRecord.job_title}</h2>
                   <p className="text-white/50 text-sm mt-1">{formatDate(selectedRecord.created_at)}</p>
                 </div>
-                <button
-                  onClick={() => setSelectedRecord(null)}
-                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
-                >
-                  <span className="text-white/70 text-2xl">✕</span>
-                </button>
+                <div className="flex items-center gap-3">
+                  {/* Download PDF Button */}
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleDownloadHistoryPDF}
+                    disabled={downloadingPDF}
+                    className="
+                      flex items-center gap-2 px-4 py-2 rounded-lg
+                      bg-indigo-600 hover:bg-indigo-500
+                      text-white text-sm font-medium
+                      transition-all duration-200
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                    "
+                  >
+                    <Download className="w-4 h-4" />
+                    {downloadingPDF ? 'Generating...' : 'Download PDF'}
+                  </motion.button>
+                  
+                  {/* Close Button */}
+                  <button
+                    onClick={() => setSelectedRecord(null)}
+                    className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    <span className="text-white/70 text-2xl">✕</span>
+                  </button>
+                </div>
               </div>
 
               {/* Modal Content - Display Results */}
-              <div className="p-6">
+              <div className="p-6" id="history-detail-report">
                 {selectedRecord.results && selectedRecord.results.map((candidate, index) => (
                   <div key={index} className="mb-8 bg-white/[0.03] backdrop-blur-xl p-6 rounded-xl border border-white/[0.08]">
                     {/* Candidate Header */}

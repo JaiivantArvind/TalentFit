@@ -16,11 +16,13 @@
     "axios": "^1.6.8",
     "clsx": "^2.1.1",
     "framer-motion": "^11.2.11",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.1.0",
     "lucide-react": "^0.395.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.13.0",
-    "recharts": "^2.12.7",
+    "recharts": "^2.15.4",
     "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {

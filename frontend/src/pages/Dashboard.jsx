@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
 import HeroSection from '../components/HeroSection.jsx';
+import ScoreChart from '../components/ScoreChart.jsx';
 import { motion } from 'framer-motion';
+import { Download } from 'lucide-react';
 import axios from 'axios';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -13,6 +17,7 @@ function Dashboard() {
   const [processing, setProcessing] = useState(false);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
+  const [downloadingPDF, setDownloadingPDF] = useState(false);
 
   const handleResumeUpload = (file) => {
     setResumeFile(file);
@@ -107,6 +112,93 @@ function Dashboard() {
     }
   };
 
+  const handleDownloadPDF = async () => {
+    setDownloadingPDF(true);
+    try {
+      const reportElement = document.getElementById('analysis-report');
+      if (!reportElement) {
+        console.error('Report element not found');
+        return;
+      }
+
+      // Temporarily apply white background for PDF
+      const originalBg = reportElement.style.backgroundColor;
+      reportElement.style.backgroundColor = '#ffffff';
+      
+      // Temporarily change text colors to dark for readability
+      const allTextElements = reportElement.querySelectorAll('*');
+      const originalColors = [];
+      allTextElements.forEach((el, idx) => {
+        originalColors[idx] = {
+          color: el.style.color,
+          borderColor: el.style.borderColor,
+          backgroundColor: el.style.backgroundColor
+        };
+        
+        // Make text dark and readable
+        const computedStyle = window.getComputedStyle(el);
+        if (computedStyle.color && computedStyle.color.includes('rgb')) {
+          el.style.color = '#1e293b';
+        }
+        
+        // Handle borders
+        if (el.style.borderColor && el.style.borderColor.includes('rgba')) {
+          el.style.borderColor = '#e2e8f0';
+        }
+        
+        // Handle backgrounds with transparency
+        if (el.style.backgroundColor && (el.style.backgroundColor.includes('rgba') || el.style.backgroundColor === 'transparent')) {
+          el.style.backgroundColor = '#ffffff';
+        }
+      });
+
+      // Capture the element
+      const canvas = await html2canvas(reportElement, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true
+      });
+
+      // Restore original styles
+      reportElement.style.backgroundColor = originalBg;
+      allTextElements.forEach((el, idx) => {
+        if (originalColors[idx]) {
+          el.style.color = originalColors[idx].color;
+          el.style.borderColor = originalColors[idx].borderColor;
+          el.style.backgroundColor = originalColors[idx].backgroundColor;
+        }
+      });
+
+      // Create PDF
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const imgX = (pdfWidth - imgWidth * ratio) / 2;
+      const imgY = 10;
+
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+
+      // Generate filename with date
+      const date = new Date().toISOString().split('T')[0];
+      pdf.save(`TalentFit_Report_${date}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setDownloadingPDF(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#030303] font-sans">
       {/* Upload Section */}
@@ -153,24 +245,49 @@ function Dashboard() {
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] via-transparent to-rose-500/[0.03] blur-3xl"></div>
           </div>
 
-          <div className="text-center mb-8">
-            <h2 className="text-4xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-indigo-300 via-white/90 to-rose-300">
-              Analysis Results
-            </h2>
-            <p className="text-white/50">AI-powered matching using keyword and semantic analysis</p>
+          {/* Header with Download Button */}
+          <div className="flex items-center justify-between mb-8">
+            <div className="text-center flex-1">
+              <h2 className="text-4xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-indigo-300 via-white/90 to-rose-300">
+                Analysis Results
+              </h2>
+              <p className="text-white/50">AI-powered matching using keyword and semantic analysis</p>
+            </div>
+            
+            {/* Download PDF Button */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleDownloadPDF}
+              disabled={downloadingPDF}
+              className="
+                flex items-center gap-2 px-4 py-2.5 rounded-xl
+                bg-white/5 hover:bg-white/10 
+                border-2 border-indigo-500/50 hover:border-indigo-400
+                text-white font-medium text-sm
+                transition-all duration-200
+                shadow-lg hover:shadow-indigo-500/30
+                disabled:opacity-50 disabled:cursor-not-allowed
+              "
+            >
+              <Download className="w-4 h-4" />
+              {downloadingPDF ? 'Generating...' : 'Download PDF'}
+            </motion.button>
           </div>
 
-          {results.results.map((candidate, index) => (
-            <motion.div 
-              key={candidate.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              className="mb-12 bg-white/[0.03] backdrop-blur-xl p-8 rounded-2xl shadow-[0_8px_32px_0_rgba(255,255,255,0.05)] border border-white/[0.08]"
-            >
-              {/* Header with Score */}
-              <div className="flex justify-between items-center mb-6 pb-6 border-b border-white/[0.08]">
-                <h3 className="text-2xl font-semibold flex items-center gap-3">
+          {/* Report Container for PDF Export */}
+          <div id="analysis-report">
+            {results.results.map((candidate, index) => (
+              <motion.div 
+                key={candidate.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                className="mb-12 bg-white/[0.03] backdrop-blur-xl p-8 rounded-2xl shadow-[0_8px_32px_0_rgba(255,255,255,0.05)] border border-white/[0.08]"
+              >
+                {/* Header with Score */}
+                <div className="flex justify-between items-center mb-6 pb-6 border-b border-white/[0.08]">
+                  <h3 className="text-2xl font-semibold flex items-center gap-3">
                   <span className="text-3xl">📄</span>
                   {candidate.filename}
                 </h3>
@@ -205,6 +322,23 @@ function Dashboard() {
                   </div>
                 </motion.div>
               )}
+
+              {/* Score Visualization Chart */}
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="mb-6 p-5 rounded-xl bg-white/[0.02] backdrop-blur-sm border border-white/[0.08]"
+              >
+                <h4 className="text-lg font-semibold mb-4 flex items-center gap-2 text-white">
+                  <span className="text-xl">📊</span>
+                  Score Breakdown
+                </h4>
+                <ScoreChart 
+                  keywordScore={candidate.breakdown.keyword.score}
+                  semanticScore={candidate.breakdown.semantic.score}
+                />
+              </motion.div>
 
               {/* Detailed Analysis Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -370,6 +504,7 @@ function Dashboard() {
               </div>
             </motion.div>
           ))}
+          </div> {/* Close analysis-report */}
 
           {/* Analyze Another Button */}
           <motion.div
