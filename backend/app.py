@@ -9,9 +9,27 @@ import numpy as np
 import io
 import os
 import sys
+import time  # For API rate limiting
+from dotenv import load_dotenv  # <--- CRUCIAL for loading .env file
+import google.generativeai as genai
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+# Configure Google Gemini API
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    # Use gemini-2.5-flash for fast, free tier performance (15 RPM free)
+    gemini_model = genai.GenerativeModel('models/gemini-2.5-flash')
+    print("[SUCCESS] Gemini API configured successfully! (Using gemini-2.5-flash)", flush=True)
+else:
+    gemini_model = None
+    print("[WARNING] GEMINI_API_KEY not set. AI summaries will be disabled.", flush=True)
+    print("          Get your API key from: https://makersuite.google.com/app/apikey", flush=True)
 
 # Lazy load SBERT model only when needed (saves startup time)
 sbert_model = None
@@ -23,7 +41,7 @@ def get_sbert_model():
         print("Loading SBERT model (first request only)...", flush=True)
         sbert_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
         sbert_model.max_seq_length = 128  # Reduce from default 256 for faster inference
-        print("✓ Model loaded successfully!", flush=True)
+        print("[OK] Model loaded successfully!", flush=True)
     return sbert_model
 
 # Extended skill keywords for better matching
@@ -77,32 +95,83 @@ def extract_text(file):
         return ""
 
 def calculate_keyword_score(resume_text, jd_text):
-    """Calculate keyword overlap score using TF-IDF"""
+    """Calculate keyword overlap score using TF-IDF with detailed analysis"""
     try:
         if not resume_text.strip() or not jd_text.strip():
-            return 0.0
+            return {
+                'score': 0.0,
+                'top_keywords': [],
+                'matched_keywords': [],
+                'explanation': 'Insufficient text for analysis'
+            }
+        
         vectorizer = TfidfVectorizer(stop_words='english', max_features=100, ngram_range=(1, 2))
         vectors = vectorizer.fit_transform([resume_text, jd_text])
         similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
-        return round(float(similarity) * 100, 2)  # Convert numpy float to Python float
+        
+        # Get feature names and scores
+        feature_names = vectorizer.get_feature_names_out()
+        jd_scores = vectors[1].toarray()[0]
+        resume_scores = vectors[0].toarray()[0]
+        
+        # Find top keywords from JD
+        jd_keyword_scores = [(feature_names[i], jd_scores[i]) for i in range(len(feature_names)) if jd_scores[i] > 0]
+        jd_keyword_scores.sort(key=lambda x: x[1], reverse=True)
+        top_keywords = [kw for kw, score in jd_keyword_scores[:10]]
+        
+        # Find matched keywords
+        matched = [(feature_names[i], resume_scores[i], jd_scores[i]) 
+                   for i in range(len(feature_names)) 
+                   if resume_scores[i] > 0 and jd_scores[i] > 0]
+        matched.sort(key=lambda x: x[1] + x[2], reverse=True)
+        matched_keywords = [kw for kw, _, _ in matched[:10]]
+        
+        return {
+            'score': round(float(similarity) * 100, 2),
+            'top_keywords': top_keywords,
+            'matched_keywords': matched_keywords,
+            'match_count': len(matched),
+            'total_keywords': len(jd_keyword_scores),
+            'explanation': f'TF-IDF analysis found {len(matched)} matching keyword patterns out of {len(jd_keyword_scores)} key terms in the job description.'
+        }
     except Exception as e:
         print(f"Keyword score error: {e}", flush=True)
-        return 0.0
+        return {
+            'score': 0.0,
+            'top_keywords': [],
+            'matched_keywords': [],
+            'explanation': f'Error during analysis: {str(e)}'
+        }
 
 def calculate_semantic_score(resume_text, jd_text):
-    """Calculate semantic similarity using SBERT"""
+    """Calculate semantic similarity using SBERT with detailed analysis"""
     try:
         model = get_sbert_model()
-        # Truncate long texts for faster processing (keep first 500 words)
-        resume_text = ' '.join(resume_text.split()[:500])
-        jd_text = ' '.join(jd_text.split()[:500])
+        # Truncate long texts for faster processing
+        resume_text_truncated = ' '.join(resume_text.split()[:500])
+        jd_text_truncated = ' '.join(jd_text.split()[:500])
         
-        embeddings = model.encode([resume_text, jd_text], show_progress_bar=False, convert_to_numpy=True)
+        embeddings = model.encode([resume_text_truncated, jd_text_truncated], show_progress_bar=False, convert_to_numpy=True)
         similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
-        return round(float(similarity) * 100, 2)  # Convert numpy float to Python float
+        
+        # Calculate embedding statistics
+        resume_embedding_norm = float(np.linalg.norm(embeddings[0]))
+        jd_embedding_norm = float(np.linalg.norm(embeddings[1]))
+        dot_product = float(np.dot(embeddings[0], embeddings[1]))
+        
+        return {
+            'score': round(float(similarity) * 100, 2),
+            'resume_embedding_norm': round(resume_embedding_norm, 4),
+            'jd_embedding_norm': round(jd_embedding_norm, 4),
+            'dot_product': round(dot_product, 4),
+            'explanation': f'SBERT semantic analysis computed contextual understanding with {round(float(similarity) * 100, 2)}% similarity. This captures meaning beyond exact keyword matches.'
+        }
     except Exception as e:
         print(f"Semantic score error: {e}", flush=True)
-        return 0.0
+        return {
+            'score': 0.0,
+            'explanation': f'Error during analysis: {str(e)}'
+        }
 
 def extract_skills(text):
     """Extract found and missing skills from text"""
@@ -118,12 +187,49 @@ def extract_skills(text):
     
     return found_skills, missing_skills
 
+def generate_ai_summary(candidate_data, job_description):
+    """Generate AI-powered summary using Google Gemini"""
+    if not gemini_model:
+        return "AI summary unavailable. Please set GEMINI_API_KEY environment variable."
+    
+    try:
+        prompt = f"""You are an expert HR analyst providing professional resume screening insights. Analyze this candidate's match with the job requirements.
+
+Job Description Summary: {job_description[:500]}...
+
+Candidate Analysis:
+- Filename: {candidate_data['filename']}
+- Overall Match Score: {candidate_data['score']}%
+- Keyword Match (TF-IDF): {candidate_data['breakdown']['keyword']['score']}%
+  - Matched Keywords: {', '.join(candidate_data['breakdown']['keyword']['matched_keywords'][:5])}
+- Semantic Match (SBERT): {candidate_data['breakdown']['semantic']['score']}%
+- Skills Found: {', '.join(candidate_data['found_skills'][:10])}
+- Skills Missing: {', '.join(candidate_data['missing_skills'][:5])}
+
+INSTRUCTIONS:
+1. Write a 2-3 sentence professional summary in PLAIN TEXT (no markdown, no asterisks, no bold formatting)
+2. Explain why this candidate matches or doesn't match well
+3. Highlight key strengths or critical gaps
+4. End with a clear recommendation using one of these exact phrases:
+   - "Recommendation: Strong Match" (80%+ score)
+   - "Recommendation: Good Match" (60-79% score)
+   - "Recommendation: Moderate Match" (40-59% score)
+   - "Recommendation: Weak Match" (below 40% score)
+
+Use natural, flowing language. Be direct and actionable. Do NOT use any special formatting characters."""
+
+        response = gemini_model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        print(f"AI summary error: {e}", flush=True)
+        return f"AI summary generation failed: {str(e)}"
+
 @app.route('/analyze', methods=['POST'])
 def analyze():
     """Main endpoint to analyze resumes against job description"""
     try:
         print(f"\n{'='*60}", flush=True)
-        print("📥 New analyze request received", flush=True)
+        print("[REQUEST] New analyze request received", flush=True)
         
         # Get job description - prefer file over text
         jd_file = request.files.get('jd_file')
@@ -133,18 +239,18 @@ def analyze():
         
         # Priority: If file is provided, use it; otherwise use text
         if jd_file:
-            print(f"📄 JD File received: {jd_file.filename}", flush=True)
+            print(f"[JD-FILE] JD File received: {jd_file.filename}", flush=True)
             job_description = extract_text(jd_file)
             if not job_description:
                 return jsonify({'error': 'Could not extract text from JD file'}), 400
-            print(f"✓ Extracted {len(job_description)} chars from JD file", flush=True)
+            print(f"[OK] Extracted {len(job_description)} chars from JD file", flush=True)
         elif jd_text:
             job_description = jd_text
-            print(f"📋 JD text received: {len(job_description)} chars", flush=True)
+            print(f"[JD-TEXT] JD text received: {len(job_description)} chars", flush=True)
         else:
             return jsonify({'error': 'Job description (text or file) is required'}), 400
         
-        print(f"📋 Job description length: {len(job_description)} chars", flush=True)
+        print(f"[INFO] Job description length: {len(job_description)} chars", flush=True)
         
         # Get uploaded files
         files = request.files.getlist('files')
@@ -152,18 +258,18 @@ def analyze():
         if not files:
             return jsonify({'error': 'No files uploaded'}), 400
         
-        print(f"📁 Files received: {len(files)}", flush=True)
+        print(f"[FILES] Files received: {len(files)}", flush=True)
         
         results = []
         
         for idx, file in enumerate(files, start=1):
-            print(f"\n⏳ Processing file {idx}/{len(files)}: {file.filename}", flush=True)
+            print(f"\n[PROCESS] Processing file {idx}/{len(files)}: {file.filename}", flush=True)
             
             # Extract text from resume
             resume_text = extract_text(file)
             
             if not resume_text:
-                print(f"❌ Failed to extract text from {file.filename}", flush=True)
+                print(f"[ERROR] Failed to extract text from {file.filename}", flush=True)
                 results.append({
                     'id': idx,
                     'filename': file.filename,
@@ -175,49 +281,62 @@ def analyze():
                 })
                 continue
             
-            print(f"✓ Extracted {len(resume_text)} characters", flush=True)
+            print(f"[OK] Extracted {len(resume_text)} characters", flush=True)
             
-            # Calculate scores
-            print("🔍 Calculating keyword score...", flush=True)
-            keyword_score = calculate_keyword_score(resume_text, job_description)
-            print(f"✓ Keyword score: {keyword_score}%", flush=True)
+            # Calculate scores with detailed analysis
+            print("[KEYWORD] Calculating keyword score...", flush=True)
+            keyword_analysis = calculate_keyword_score(resume_text, job_description)
+            print(f"[OK] Keyword score: {keyword_analysis['score']}%", flush=True)
             
-            print("🧠 Calculating semantic score...", flush=True)
-            semantic_score = calculate_semantic_score(resume_text, job_description)
-            print(f"✓ Semantic score: {semantic_score}%", flush=True)
+            print("[SEMANTIC] Calculating semantic score...", flush=True)
+            semantic_analysis = calculate_semantic_score(resume_text, job_description)
+            print(f"[OK] Semantic score: {semantic_analysis['score']}%", flush=True)
             
             # Weighted average (40% keyword, 60% semantic)
-            final_score = round((keyword_score * 0.4) + (semantic_score * 0.6), 2)
+            final_score = round((keyword_analysis['score'] * 0.4) + (semantic_analysis['score'] * 0.6), 2)
             
             # Extract skills
             found_skills, missing_skills = extract_skills(resume_text)
             
-            print(f"🎯 Final score: {final_score}%", flush=True)
-            print(f"✅ Found skills: {len(found_skills)}", flush=True)
-            print(f"❌ Missing skills: {len(missing_skills)}", flush=True)
+            print(f"[SCORE] Final score: {final_score}%", flush=True)
+            print(f"[SKILLS-FOUND] Found skills: {len(found_skills)}", flush=True)
+            print(f"[SKILLS-MISS] Missing skills: {len(missing_skills)}", flush=True)
             
-            results.append({
+            # Build candidate data
+            candidate_data = {
                 'id': idx,
                 'filename': file.filename,
                 'score': final_score,
                 'breakdown': {
-                    'keyword': keyword_score,
-                    'semantic': semantic_score
+                    'keyword': keyword_analysis,
+                    'semantic': semantic_analysis,
+                    'weight_explanation': 'Final score calculated as: (Keyword × 40%) + (Semantic × 60%). This weighting prioritizes contextual understanding over exact keyword matches.'
                 },
                 'found_skills': found_skills,
                 'missing_skills': missing_skills
-            })
+            }
+            
+            # Generate AI summary
+            print("[AI] Generating AI summary...", flush=True)
+            ai_summary = generate_ai_summary(candidate_data, job_description)
+            candidate_data['ai_summary'] = ai_summary
+            print(f"[OK] AI summary generated", flush=True)
+            
+            # Rate limiting: Sleep 1 second to avoid hitting Gemini API limits (15 RPM for free tier)
+            time.sleep(1)
+            
+            results.append(candidate_data)
         
         # Sort by score descending
         results.sort(key=lambda x: x['score'], reverse=True)
         
-        print(f"\n✅ Analysis complete! Processed {len(results)} file(s)", flush=True)
+        print(f"\n[COMPLETE] Analysis complete! Processed {len(results)} file(s)", flush=True)
         print(f"{'='*60}\n", flush=True)
         
         return jsonify({'results': results}), 200
     
     except Exception as e:
-        print(f"❌ Error in /analyze: {e}", flush=True)
+        print(f"[ERROR] Error in /analyze: {e}", flush=True)
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -228,9 +347,9 @@ def health():
     return jsonify({'status': 'healthy', 'model': 'all-MiniLM-L6-v2'}), 200
 
 if __name__ == '__main__':
-    print("🚀 Starting Flask Backend Server...", flush=True)
-    print("📍 Server will be available at: http://127.0.0.1:5000", flush=True)
-    print("⚡ Model will load on first request (lazy loading for faster startup)", flush=True)
+    print("[START] Starting Flask Backend Server...", flush=True)
+    print("[INFO] Server will be available at: http://127.0.0.1:5000", flush=True)
+    print("[INFO] Model will load on first request (lazy loading for faster startup)", flush=True)
     print("-" * 60, flush=True)
     # Disable Flask reloader in production to prevent double loading
     app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
