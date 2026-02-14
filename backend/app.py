@@ -102,6 +102,7 @@ def calculate_keyword_score(resume_text, jd_text):
                 'score': 0.0,
                 'top_keywords': [],
                 'matched_keywords': [],
+                'missing_keywords': [],
                 'explanation': 'Insufficient text for analysis'
             }
         
@@ -119,17 +120,25 @@ def calculate_keyword_score(resume_text, jd_text):
         jd_keyword_scores.sort(key=lambda x: x[1], reverse=True)
         top_keywords = [kw for kw, score in jd_keyword_scores[:10]]
         
-        # Find matched keywords
+        # Find matched keywords (present in both resume and JD)
         matched = [(feature_names[i], resume_scores[i], jd_scores[i]) 
                    for i in range(len(feature_names)) 
                    if resume_scores[i] > 0 and jd_scores[i] > 0]
         matched.sort(key=lambda x: x[1] + x[2], reverse=True)
         matched_keywords = [kw for kw, _, _ in matched[:10]]
         
+        # Find missing keywords (present in JD but NOT in resume)
+        missing = [(feature_names[i], jd_scores[i]) 
+                   for i in range(len(feature_names)) 
+                   if jd_scores[i] > 0 and resume_scores[i] == 0]
+        missing.sort(key=lambda x: x[1], reverse=True)
+        missing_keywords = [kw for kw, _ in missing[:5]]  # Top 5 missing keywords
+        
         return {
             'score': round(float(similarity) * 100, 2),
             'top_keywords': top_keywords,
             'matched_keywords': matched_keywords,
+            'missing_keywords': missing_keywords,
             'match_count': len(matched),
             'total_keywords': len(jd_keyword_scores),
             'explanation': f'TF-IDF analysis found {len(matched)} matching keyword patterns out of {len(jd_keyword_scores)} key terms in the job description.'
@@ -140,6 +149,7 @@ def calculate_keyword_score(resume_text, jd_text):
             'score': 0.0,
             'top_keywords': [],
             'matched_keywords': [],
+            'missing_keywords': [],
             'explanation': f'Error during analysis: {str(e)}'
         }
 
