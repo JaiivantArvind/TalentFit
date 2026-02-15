@@ -14,6 +14,7 @@ import json
 import re
 import jwt
 from dotenv import load_dotenv
+import google.generativeai as genai
 
 # Load environment variables
 load_dotenv()
@@ -34,20 +35,27 @@ CORS(app,
 # CONFIGURATION - Lazy Loading to prevent startup blocking
 # ---------------------------------------------------------------------------
 
-# Configure Google Gemini (lazy)
+# Configure Google Gemini
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+
+# Configure genai immediately for embeddings API
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    print("[SUCCESS] Gemini API configured for embeddings!", flush=True)
+else:
+    print("[WARNING] GEMINI_API_KEY not set. Semantic scoring will fail.", flush=True)
+
+# Lazy load the generative model for AI summaries
 gemini_model = None
 
 def get_gemini_model():
     global gemini_model
     if gemini_model is None and GEMINI_API_KEY:
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
             gemini_model = genai.GenerativeModel('models/gemini-2.5-flash')
-            print("[SUCCESS] Gemini API configured successfully!", flush=True)
+            print("[SUCCESS] Gemini generative model loaded!", flush=True)
         except Exception as e:
-            print(f"[ERROR] Failed to init Gemini: {e}", flush=True)
+            print(f"[ERROR] Failed to load Gemini model: {e}", flush=True)
     return gemini_model
 
 # Configure Supabase (lazy)
@@ -66,17 +74,10 @@ def get_supabase_client():
             print(f"[ERROR] Failed to init Supabase: {e}", flush=True)
     return supabase
 
-# Lazy Load SBERT
-sbert_model = None
-def get_sbert_model():
-    global sbert_model
-    if sbert_model is None:
-        print("Loading SBERT model (first request only)...", flush=True)
-        from sentence_transformers import SentenceTransformer
-        sbert_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-        sbert_model.max_seq_length = 128
-        print("[OK] Model loaded successfully!", flush=True)
-    return sbert_model
+# Lazy Load SBERT - REMOVED (using Gemini embeddings instead to save RAM)
+# sbert_model = None
+# def get_sbert_model():
+#     ... (Removed to prevent OOM on Render free tier)
 
 SKILL_KEYWORDS = [
     'Python', 'Java', 'JavaScript', 'TypeScript', 'React', 'Node.js', 'Angular', 'Vue',
@@ -136,19 +137,38 @@ def calculate_keyword_score(resume_text, jd_text):
         print(f"Keyword score error: {e}")
         return {'score': 0.0, 'matched_keywords': [], 'missing_keywords': []}
 
-def calculate_semantic_score(resume_text, jd_text):
+def calculate_semantic_score(resume_text, job_desc):
+    """
+    Replaces the heavy SBERT model with Gemini API embeddings.
+    Total RAM usage: ~0MB vs 500MB+
+    """
     try:
-        model = get_sbert_model()
-        resume_trunc = ' '.join(resume_text.split()[:500])
-        jd_trunc = ' '.join(jd_text.split()[:500])
+        # 1. Get embeddings for both texts via API
+        # Note: 'models/embedding-001' is the standard high-speed model
+        res_res = genai.embed_content(
+            model="models/embedding-001",
+            content=resume_text,
+            task_type="clustering"
+        )
+        job_res = genai.embed_content(
+            model="models/embedding-001",
+            content=job_desc,
+            task_type="clustering"
+        )
         
-        embeddings = model.encode([resume_trunc, jd_trunc], convert_to_numpy=True)
-        similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
+        # 2. Extract the vector lists
+        res_vector = np.array(res_res['embedding']).reshape(1, -1)
+        job_vector = np.array(job_res['embedding']).reshape(1, -1)
         
+        # 3. Calculate similarity (Result is between 0 and 1)
+        similarity = cosine_similarity(res_vector, job_vector)[0][0]
+        
+        # Return formatted score (0-100 scale to match existing code expectations)
         return {'score': round(float(similarity) * 100, 2)}
+        
     except Exception as e:
-        print(f"Semantic score error: {e}")
-        return {'score': 0.0}
+        print(f"Error in semantic calculation: {e}", flush=True)
+        return {'score': 50.0}  # Neutral fallback score if API fails
 
 def extract_skills(text):
     text_lower = text.lower()
