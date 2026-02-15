@@ -9,42 +9,68 @@ import numpy as np
 import io
 import os
 import sys
-import time  # For API rate limiting
-from dotenv import load_dotenv  # <--- CRUCIAL for loading .env file
+import time
+import json
+import re
+import jwt
+from dotenv import load_dotenv
 import google.generativeai as genai
+from supabase import create_client, Client
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)
 
-# Configure Google Gemini API
+# ---------------------------------------------------------------------------
+# ✅ FIXED CORS CONFIGURATION
+# ---------------------------------------------------------------------------
+# We allow "*" origins to prevent development blocking.
+# We explicitly allow 'Authorization' (for Supabase) and 'Content-Type' (for JSON).
+CORS(app, 
+     resources={r"/*": {"origins": "*"}}, 
+     supports_credentials=True, 
+     allow_headers=["Content-Type", "Authorization", "x-client-info", "apikey"])
+
+# ---------------------------------------------------------------------------
+# CONFIGURATION
+# ---------------------------------------------------------------------------
+
+# Configure Google Gemini
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    # Use gemini-2.5-flash for fast, free tier performance (15 RPM free)
     gemini_model = genai.GenerativeModel('models/gemini-2.5-flash')
-    print("[SUCCESS] Gemini API configured successfully! (Using gemini-2.5-flash)", flush=True)
+    print("[SUCCESS] Gemini API configured successfully!", flush=True)
 else:
     gemini_model = None
     print("[WARNING] GEMINI_API_KEY not set. AI summaries will be disabled.", flush=True)
-    print("          Get your API key from: https://makersuite.google.com/app/apikey", flush=True)
 
-# Lazy load SBERT model only when needed (saves startup time)
+# Configure Supabase
+SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
+supabase: Client = None
+
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        print("[SUCCESS] Supabase client configured successfully!", flush=True)
+    except Exception as e:
+        print(f"[ERROR] Failed to init Supabase: {e}", flush=True)
+else:
+    print("[WARNING] SUPABASE_URL or SUPABASE_KEY not set. Settings will not save.", flush=True)
+
+# Lazy Load SBERT
 sbert_model = None
-
 def get_sbert_model():
-    """Lazy load SBERT model on first use"""
     global sbert_model
     if sbert_model is None:
         print("Loading SBERT model (first request only)...", flush=True)
         sbert_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-        sbert_model.max_seq_length = 128  # Reduce from default 256 for faster inference
+        sbert_model.max_seq_length = 128
         print("[OK] Model loaded successfully!", flush=True)
     return sbert_model
 
-# Extended skill keywords for better matching
 SKILL_KEYWORDS = [
     'Python', 'Java', 'JavaScript', 'TypeScript', 'React', 'Node.js', 'Angular', 'Vue',
     'SQL', 'PostgreSQL', 'MongoDB', 'Redis', 'MySQL',
@@ -54,312 +80,317 @@ SKILL_KEYWORDS = [
     'Git', 'Agile', 'Scrum', 'Linux', 'Bash'
 ]
 
-def extract_text_from_pdf(file_content):
-    """Extract text from PDF file"""
-    try:
-        pdf_reader = pypdf.PdfReader(io.BytesIO(file_content))
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() + "\n"
-        return text.strip()
-    except Exception as e:
-        print(f"PDF extraction error: {e}")
-        return ""
-
-def extract_text_from_docx(file_content):
-    """Extract text from DOCX file"""
-    try:
-        doc = Document(io.BytesIO(file_content))
-        text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-        return text.strip()
-    except Exception as e:
-        print(f"DOCX extraction error: {e}")
-        return ""
+# ---------------------------------------------------------------------------
+# HELPER FUNCTIONS
+# ---------------------------------------------------------------------------
 
 def extract_text(file):
-    """Extract text from uploaded file based on extension"""
     filename = file.filename.lower()
     file_content = file.read()
     
-    if filename.endswith('.pdf'):
-        return extract_text_from_pdf(file_content)
-    elif filename.endswith('.docx'):
-        return extract_text_from_docx(file_content)
-    elif filename.endswith('.txt'):
-        try:
+    try:
+        if filename.endswith('.pdf'):
+            pdf_reader = pypdf.PdfReader(io.BytesIO(file_content))
+            text = "".join([page.extract_text() + "\n" for page in pdf_reader.pages])
+            return text.strip()
+        elif filename.endswith('.docx'):
+            doc = Document(io.BytesIO(file_content))
+            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            return text.strip()
+        elif filename.endswith('.txt'):
             return file_content.decode('utf-8').strip()
-        except Exception as e:
-            print(f"TXT extraction error: {e}")
-            return ""
-    else:
+    except Exception as e:
+        print(f"Extraction error for {filename}: {e}")
         return ""
+    return ""
 
 def calculate_keyword_score(resume_text, jd_text):
-    """Calculate keyword overlap score using TF-IDF with detailed analysis"""
     try:
         if not resume_text.strip() or not jd_text.strip():
-            return {
-                'score': 0.0,
-                'top_keywords': [],
-                'matched_keywords': [],
-                'missing_keywords': [],
-                'explanation': 'Insufficient text for analysis'
-            }
+            return {'score': 0.0, 'matched_keywords': [], 'missing_keywords': []}
         
         vectorizer = TfidfVectorizer(stop_words='english', max_features=100, ngram_range=(1, 2))
         vectors = vectorizer.fit_transform([resume_text, jd_text])
         similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
         
-        # Get feature names and scores
         feature_names = vectorizer.get_feature_names_out()
         jd_scores = vectors[1].toarray()[0]
         resume_scores = vectors[0].toarray()[0]
         
-        # Find top keywords from JD
-        jd_keyword_scores = [(feature_names[i], jd_scores[i]) for i in range(len(feature_names)) if jd_scores[i] > 0]
-        jd_keyword_scores.sort(key=lambda x: x[1], reverse=True)
-        top_keywords = [kw for kw, score in jd_keyword_scores[:10]]
-        
-        # Find matched keywords (present in both resume and JD)
-        matched = [(feature_names[i], resume_scores[i], jd_scores[i]) 
-                   for i in range(len(feature_names)) 
-                   if resume_scores[i] > 0 and jd_scores[i] > 0]
-        matched.sort(key=lambda x: x[1] + x[2], reverse=True)
-        matched_keywords = [kw for kw, _, _ in matched[:10]]
-        
-        # Find missing keywords (present in JD but NOT in resume)
-        missing = [(feature_names[i], jd_scores[i]) 
-                   for i in range(len(feature_names)) 
-                   if jd_scores[i] > 0 and resume_scores[i] == 0]
-        missing.sort(key=lambda x: x[1], reverse=True)
-        missing_keywords = [kw for kw, _ in missing[:5]]  # Top 5 missing keywords
+        matched = [feature_names[i] for i in range(len(feature_names)) if resume_scores[i] > 0 and jd_scores[i] > 0]
+        missing = [feature_names[i] for i in range(len(feature_names)) if jd_scores[i] > 0 and resume_scores[i] == 0]
         
         return {
             'score': round(float(similarity) * 100, 2),
-            'top_keywords': top_keywords,
-            'matched_keywords': matched_keywords,
-            'missing_keywords': missing_keywords,
-            'match_count': len(matched),
-            'total_keywords': len(jd_keyword_scores),
-            'explanation': f'TF-IDF analysis found {len(matched)} matching keyword patterns out of {len(jd_keyword_scores)} key terms in the job description.'
+            'matched_keywords': matched[:10],
+            'missing_keywords': missing[:5]
         }
     except Exception as e:
-        print(f"Keyword score error: {e}", flush=True)
-        return {
-            'score': 0.0,
-            'top_keywords': [],
-            'matched_keywords': [],
-            'missing_keywords': [],
-            'explanation': f'Error during analysis: {str(e)}'
-        }
+        print(f"Keyword score error: {e}")
+        return {'score': 0.0, 'matched_keywords': [], 'missing_keywords': []}
 
 def calculate_semantic_score(resume_text, jd_text):
-    """Calculate semantic similarity using SBERT with detailed analysis"""
     try:
         model = get_sbert_model()
-        # Truncate long texts for faster processing
-        resume_text_truncated = ' '.join(resume_text.split()[:500])
-        jd_text_truncated = ' '.join(jd_text.split()[:500])
+        resume_trunc = ' '.join(resume_text.split()[:500])
+        jd_trunc = ' '.join(jd_text.split()[:500])
         
-        embeddings = model.encode([resume_text_truncated, jd_text_truncated], show_progress_bar=False, convert_to_numpy=True)
+        embeddings = model.encode([resume_trunc, jd_trunc], convert_to_numpy=True)
         similarity = cosine_similarity([embeddings[0]], [embeddings[1]])[0][0]
         
-        # Calculate embedding statistics
-        resume_embedding_norm = float(np.linalg.norm(embeddings[0]))
-        jd_embedding_norm = float(np.linalg.norm(embeddings[1]))
-        dot_product = float(np.dot(embeddings[0], embeddings[1]))
-        
-        return {
-            'score': round(float(similarity) * 100, 2),
-            'resume_embedding_norm': round(resume_embedding_norm, 4),
-            'jd_embedding_norm': round(jd_embedding_norm, 4),
-            'dot_product': round(dot_product, 4),
-            'explanation': f'SBERT semantic analysis computed contextual understanding with {round(float(similarity) * 100, 2)}% similarity. This captures meaning beyond exact keyword matches.'
-        }
+        return {'score': round(float(similarity) * 100, 2)}
     except Exception as e:
-        print(f"Semantic score error: {e}", flush=True)
-        return {
-            'score': 0.0,
-            'explanation': f'Error during analysis: {str(e)}'
-        }
+        print(f"Semantic score error: {e}")
+        return {'score': 0.0}
 
 def extract_skills(text):
-    """Extract found and missing skills from text"""
     text_lower = text.lower()
-    found_skills = []
-    missing_skills = []
-    
-    for skill in SKILL_KEYWORDS:
-        if skill.lower() in text_lower:
-            found_skills.append(skill)
-        else:
-            missing_skills.append(skill)
-    
-    return found_skills, missing_skills
+    found = [skill for skill in SKILL_KEYWORDS if skill.lower() in text_lower]
+    missing = [skill for skill in SKILL_KEYWORDS if skill not in found]
+    return found, missing
 
-def generate_ai_summary(candidate_data, job_description):
-    """Generate AI-powered summary using Google Gemini"""
-    if not gemini_model:
-        return "AI summary unavailable. Please set GEMINI_API_KEY environment variable."
-    
+def parse_email(text):
+    match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
+    return match.group(0) if match else None
+
+def generate_ai_summary(candidate_data, jd_text):
+    if not gemini_model: return "AI Summary unavailable (No Key)."
     try:
-        prompt = f"""You are an expert HR analyst providing professional resume screening insights. Analyze this candidate's match with the job requirements.
-
-Job Description Summary: {job_description[:500]}...
-
-Candidate Analysis:
-- Filename: {candidate_data['filename']}
-- Overall Match Score: {candidate_data['score']}%
-- Keyword Match (TF-IDF): {candidate_data['breakdown']['keyword']['score']}%
-  - Matched Keywords: {', '.join(candidate_data['breakdown']['keyword']['matched_keywords'][:5])}
-- Semantic Match (SBERT): {candidate_data['breakdown']['semantic']['score']}%
-- Skills Found: {', '.join(candidate_data['found_skills'][:10])}
-- Skills Missing: {', '.join(candidate_data['missing_skills'][:5])}
-
-INSTRUCTIONS:
-1. Write a 2-3 sentence professional summary in PLAIN TEXT (no markdown, no asterisks, no bold formatting)
-2. Explain why this candidate matches or doesn't match well
-3. Highlight key strengths or critical gaps
-4. End with a clear recommendation using one of these exact phrases:
-   - "Recommendation: Strong Match" (80%+ score)
-   - "Recommendation: Good Match" (60-79% score)
-   - "Recommendation: Moderate Match" (40-59% score)
-   - "Recommendation: Weak Match" (below 40% score)
-
-Use natural, flowing language. Be direct and actionable. Do NOT use any special formatting characters."""
-
+        prompt = f"""Analyze this candidate for the job.
+        Job: {jd_text[:300]}...
+        Candidate Score: {candidate_data['score']}%
+        Skills: {', '.join(candidate_data['found_skills'][:5])}
+        
+        Provide a 2 sentence professional summary and a Recommendation (Strong/Good/Weak Match)."""
         response = gemini_model.generate_content(prompt)
         return response.text.strip()
-    except Exception as e:
-        print(f"AI summary error: {e}", flush=True)
-        return f"AI summary generation failed: {str(e)}"
+    except:
+        return "AI Analysis failed."
+
+# ---------------------------------------------------------------------------
+# CORE ENDPOINTS
+# ---------------------------------------------------------------------------
+
+@app.route('/test', methods=['GET'])
+def test_route():
+    return "Test successful!"
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    """Main endpoint to analyze resumes against job description"""
     try:
-        print(f"\n{'='*60}", flush=True)
-        print("[REQUEST] New analyze request received", flush=True)
-        
-        # Get job description - prefer file over text
         jd_file = request.files.get('jd_file')
         jd_text = request.form.get('job_description', '')
         
-        job_description = ''
-        
-        # Priority: If file is provided, use it; otherwise use text
+        # Get custom weights from frontend (or default)
+        try:
+            k_weight = float(request.form.get('keyword_weight', 0.5))
+            s_weight = float(request.form.get('semantic_weight', 0.5))
+        except:
+            k_weight, s_weight = 0.5, 0.5
+
         if jd_file:
-            print(f"[JD-FILE] JD File received: {jd_file.filename}", flush=True)
             job_description = extract_text(jd_file)
-            if not job_description:
-                return jsonify({'error': 'Could not extract text from JD file'}), 400
-            print(f"[OK] Extracted {len(job_description)} chars from JD file", flush=True)
         elif jd_text:
             job_description = jd_text
-            print(f"[JD-TEXT] JD text received: {len(job_description)} chars", flush=True)
         else:
-            return jsonify({'error': 'Job description (text or file) is required'}), 400
-        
-        print(f"[INFO] Job description length: {len(job_description)} chars", flush=True)
-        
-        # Get uploaded files
+            return jsonify({'error': 'No Job Description provided'}), 400
+
         files = request.files.getlist('files')
-        
-        if not files:
-            return jsonify({'error': 'No files uploaded'}), 400
-        
-        print(f"[FILES] Files received: {len(files)}", flush=True)
-        
         results = []
-        
-        for idx, file in enumerate(files, start=1):
-            print(f"\n[PROCESS] Processing file {idx}/{len(files)}: {file.filename}", flush=True)
-            
-            # Extract text from resume
+
+        for idx, file in enumerate(files):
             resume_text = extract_text(file)
+            if not resume_text: continue
+
+            k_res = calculate_keyword_score(resume_text, job_description)
+            s_res = calculate_semantic_score(resume_text, job_description)
             
-            if not resume_text:
-                print(f"[ERROR] Failed to extract text from {file.filename}", flush=True)
-                results.append({
-                    'id': idx,
-                    'filename': file.filename,
-                    'score': 0,
-                    'breakdown': {'keyword': 0, 'semantic': 0},
-                    'found_skills': [],
-                    'missing_skills': SKILL_KEYWORDS,
-                    'error': 'Could not extract text from file'
-                })
-                continue
+            # Apply dynamic weights
+            final_score = round((k_res['score'] * k_weight) + (s_res['score'] * s_weight), 2)
             
-            print(f"[OK] Extracted {len(resume_text)} characters", flush=True)
+            found, missing = extract_skills(resume_text)
             
-            # Calculate scores with detailed analysis
-            print("[KEYWORD] Calculating keyword score...", flush=True)
-            keyword_analysis = calculate_keyword_score(resume_text, job_description)
-            print(f"[OK] Keyword score: {keyword_analysis['score']}%", flush=True)
-            
-            print("[SEMANTIC] Calculating semantic score...", flush=True)
-            semantic_analysis = calculate_semantic_score(resume_text, job_description)
-            print(f"[OK] Semantic score: {semantic_analysis['score']}%", flush=True)
-            
-            # Weighted average (40% keyword, 60% semantic)
-            final_score = round((keyword_analysis['score'] * 0.4) + (semantic_analysis['score'] * 0.6), 2)
-            
-            # Extract skills
-            found_skills, missing_skills = extract_skills(resume_text)
-            
-            print(f"[SCORE] Final score: {final_score}%", flush=True)
-            print(f"[SKILLS-FOUND] Found skills: {len(found_skills)}", flush=True)
-            print(f"[SKILLS-MISS] Missing skills: {len(missing_skills)}", flush=True)
-            
-            # Build candidate data
-            candidate_data = {
+            c_data = {
                 'id': idx,
                 'filename': file.filename,
                 'score': final_score,
-                'breakdown': {
-                    'keyword': keyword_analysis,
-                    'semantic': semantic_analysis,
-                    'weight_explanation': 'Final score calculated as: (Keyword × 40%) + (Semantic × 60%). This weighting prioritizes contextual understanding over exact keyword matches.'
-                },
-                'found_skills': found_skills,
-                'missing_skills': missing_skills
+                'email': parse_email(resume_text),
+                'found_skills': found,
+                'missing_skills': missing,
+                'breakdown': {'keyword': k_res, 'semantic': s_res}
             }
             
-            # Generate AI summary
-            print("[AI] Generating AI summary...", flush=True)
-            ai_summary = generate_ai_summary(candidate_data, job_description)
-            candidate_data['ai_summary'] = ai_summary
-            print(f"[OK] AI summary generated", flush=True)
-            
-            # Rate limiting: Sleep 1 second to avoid hitting Gemini API limits (15 RPM for free tier)
-            time.sleep(1)
-            
-            results.append(candidate_data)
-        
-        # Sort by score descending
+            c_data['ai_summary'] = generate_ai_summary(c_data, job_description)
+            results.append(c_data)
+            time.sleep(0.5) # Rate limit safety
+
         results.sort(key=lambda x: x['score'], reverse=True)
-        
-        print(f"\n[COMPLETE] Analysis complete! Processed {len(results)} file(s)", flush=True)
-        print(f"{'='*60}\n", flush=True)
-        
         return jsonify({'results': results}), 200
-    
+
     except Exception as e:
-        print(f"[ERROR] Error in /analyze: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
+        print(f"Analyze Error: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/health', methods=['GET'])
-def health():
-    """Health check endpoint"""
-    return jsonify({'status': 'healthy', 'model': 'all-MiniLM-L6-v2'}), 200
+@app.route('/generate_email', methods=['POST'])
+def generate_email():
+    try:
+        data = request.json
+        if not gemini_model: return jsonify({'error': 'No AI Key'}), 503
+        
+        prompt = f"""Write a recruiting email to {data.get('candidate_name')} for {data.get('job_title')}.
+        Mention missing skills: {', '.join(data.get('missing_skills', []))}.
+        Return ONLY valid JSON: {{'subject': '...', 'body': '...'}}"""
+        
+        response = gemini_model.generate_content(prompt)
+        text = response.text.replace('```json', '').replace('```', '').strip()
+        return jsonify(json.loads(text)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# SETTINGS ENDPOINTS (SUPABASE INTEGRATION)
+# ---------------------------------------------------------------------------
+
+@app.route('/settings', methods=['GET'])
+def get_settings():
+    """Retrieve settings for the logged-in user"""
+    auth_header = request.headers.get('Authorization')
+    
+    if not auth_header:
+        return jsonify({'error': 'No authorization header provided'}), 401
+    
+    if not supabase:
+        return jsonify({'error': 'Database unavailable'}), 500
+
+    try:
+        # 1. Verify JWT token and extract user ID securely
+        if not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Invalid authorization format'}), 401
+            
+        token = auth_header.split('Bearer ')[1]
+        print(f"[DEBUG] Token received: {token[:20]}...", flush=True)
+        
+        # Use Supabase auth to verify token and get user
+        try:
+            user = supabase.auth.get_user(token)
+            user_id = user.user.id
+        except Exception as auth_error:
+            print(f"[DEBUG] Auth verification failed: {auth_error}", flush=True)
+            return jsonify({'error': 'Invalid or expired token'}), 401
+        
+        if not user_id:
+            return jsonify({'error': 'Invalid token - no user ID found'}), 401
+            
+        print(f"[DEBUG] User ID from token: {user_id}", flush=True)
+
+        # 2. Query DB using user_configs table
+        response = supabase.table('user_configs').select('*').eq('user_id', user_id).execute()
+        print(f"[DEBUG] DB response: {response}", flush=True)
+        
+        # 3. Return Data or Auto-create with Defaults
+        if response.data and len(response.data) > 0:
+            print(f"[DEBUG] Returning existing settings", flush=True)
+            return jsonify(response.data[0]), 200
+        else:
+            # No settings found - auto-create row with defaults
+            print(f"[DEBUG] No settings found, auto-creating with defaults", flush=True)
+            defaults = {
+                'user_id': user_id,
+                'keyword_weight': 0.4,
+                'semantic_weight': 0.6,
+                'signature_name': '',
+                'signature_role': '',
+                'signature_company': ''
+            }
+            
+            supabase.table('user_configs').insert(defaults).execute()
+            return jsonify(defaults), 200
+
+    except Exception as e:
+        import traceback
+        print("\n" + "="*60, flush=True)
+        print("❌ CRITICAL BACKEND ERROR - GET /settings", flush=True)
+        print(f"Error Type: {type(e).__name__}", flush=True)
+        print(f"Error Message: {str(e)}", flush=True)
+        print("Full Traceback:", flush=True)
+        traceback.print_exc()
+        print("="*60 + "\n", flush=True)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/settings', methods=['POST'])
+def save_settings():
+    """Save/Update settings for the logged-in user"""
+    auth_header = request.headers.get('Authorization')
+    
+    if not auth_header:
+        return jsonify({'error': 'No authorization header provided'}), 401
+        
+    if not supabase:
+        return jsonify({'error': 'Database unavailable'}), 500
+
+    try:
+        # 1. Verify JWT token and extract user ID securely
+        if not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Invalid authorization format'}), 401
+            
+        token = auth_header.split('Bearer ')[1]
+        
+        # Use Supabase auth to verify token and get user
+        try:
+            user = supabase.auth.get_user(token)
+            user_id = user.user.id
+        except Exception as auth_error:
+            print(f"[DEBUG] Auth verification failed: {auth_error}", flush=True)
+            return jsonify({'error': 'Invalid or expired token'}), 401
+        
+        if not user_id:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        print(f"[DEBUG] Saving settings for user: {user_id}", flush=True)
+        
+        # 2. Prepare Data for user_configs table (allowlist pattern for security)
+        incoming = request.json or {}
+        settings_payload = {
+            'user_id': user_id,
+            'keyword_weight': incoming.get('keyword_weight', 0.4),
+            'semantic_weight': incoming.get('semantic_weight', 0.6),
+            'signature_name': incoming.get('signature_name', ''),
+            'signature_role': incoming.get('signature_role', ''),
+            'signature_company': incoming.get('signature_company', '')
+        }
+        
+        print(f"[DEBUG] Payload: {settings_payload}", flush=True)
+
+        # 3. Upsert (Update if exists, Insert if new) to user_configs table
+        response = (
+            supabase
+            .table('user_configs')
+            .upsert(
+                settings_payload,
+                on_conflict='user_id',
+                ignore_duplicates=False
+            )
+            .execute()
+        )
+        print(f"[DEBUG] Upsert response: {response}", flush=True)
+        
+        return jsonify({'message': 'Settings synced to cloud ☁️', 'data': response.data}), 200
+
+    except Exception as e:
+        import traceback
+        print("\n" + "="*60, flush=True)
+        print("❌ CRITICAL BACKEND ERROR - POST /settings", flush=True)
+        print(f"Error Type: {type(e).__name__}", flush=True)
+        print(f"Error Message: {str(e)}", flush=True)
+        print("Full Traceback:", flush=True)
+        traceback.print_exc()
+        print("="*60 + "\n", flush=True)
+        return jsonify({'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# MAIN
+# ---------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    print("[START] Starting Flask Backend Server...", flush=True)
-    print("[INFO] Server will be available at: http://127.0.0.1:5000", flush=True)
-    print("[INFO] Model will load on first request (lazy loading for faster startup)", flush=True)
-    print("-" * 60, flush=True)
-    # Disable Flask reloader in production to prevent double loading
-    app.run(host='127.0.0.1', port=5000, debug=False, threaded=True)
+    print("Server running on http://127.0.0.1:5000")
+    app.run(port=5000, debug=True)

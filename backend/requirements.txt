@@ -7,3 +7,5 @@ python-docx
 numpy
 google-generativeai
 python-dotenv
+supabase
+PyJWT

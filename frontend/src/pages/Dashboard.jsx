@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import HeroSection from '../components/HeroSection.jsx';
 import ScoreChart from '../components/ScoreChart.jsx';
 import { motion } from 'framer-motion';
-import { Download } from 'lucide-react';
+import { Download, Mail } from 'lucide-react';
 import axios from 'axios';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
@@ -11,6 +12,7 @@ import html2canvas from 'html2canvas';
 
 function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [resumeFile, setResumeFile] = useState(null);
   const [jobDescription, setJobDescription] = useState('');
   const [jdFile, setJdFile] = useState(null);
@@ -18,6 +20,20 @@ function Dashboard() {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [downloadingPDF, setDownloadingPDF] = useState(false);
+
+  const openEmailAssistant = (candidate) => {
+    const jobTitle = jdFile ? jdFile.name.replace(/\.(pdf|docx|txt)$/i, '') : 'Job Position';
+    
+    navigate('/email-assistant', {
+      state: {
+        toEmail: candidate.email,
+        candidateName: candidate.filename?.replace(/\.(pdf|docx|txt)$/i, '') || 'Candidate',
+        jobTitle: jobTitle,
+        missingSkills: candidate.breakdown?.keyword?.missing_keywords || candidate.missing_skills || [],
+        resumeSummary: candidate.ai_summary || ''
+      }
+    });
+  };
 
   const handleResumeUpload = (file) => {
     setResumeFile(file);
@@ -47,18 +63,43 @@ function Dashboard() {
     setError(null);
     setResults(null);
 
-    const formData = new FormData();
-    formData.append('files', resumeFile);
-    
-    // Priority: If jdFile exists, use it; otherwise use text
-    if (jdFile) {
-      formData.append('jd_file', jdFile);
-    } else if (jobDescription.trim()) {
-      formData.append('job_description', jobDescription);
-    }
-
     try {
-      const response = await axios.post('http://localhost:5000/analyze', formData, {
+      // Fetch user settings to get weights
+      let keywordWeight = 0.4;
+      let semanticWeight = 0.6;
+      
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const settingsResponse = await axios.get('http://127.0.0.1:5000/settings', {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`
+            }
+          });
+          keywordWeight = settingsResponse.data.keyword_weight || 0.4;
+          semanticWeight = settingsResponse.data.semantic_weight || 0.6;
+          console.log('Using custom weights:', { keywordWeight, semanticWeight });
+        }
+      } catch (settingsError) {
+        console.log('Could not fetch settings, using defaults:', settingsError.message);
+        // Continue with defaults
+      }
+
+      const formData = new FormData();
+      formData.append('files', resumeFile);
+      
+      // Priority: If jdFile exists, use it; otherwise use text
+      if (jdFile) {
+        formData.append('jd_file', jdFile);
+      } else if (jobDescription.trim()) {
+        formData.append('job_description', jobDescription);
+      }
+      
+      // Add weights to the request
+      formData.append('keyword_weight', keywordWeight.toString());
+      formData.append('semantic_weight', semanticWeight.toString());
+
+      const response = await axios.post('http://127.0.0.1:5000/analyze', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -502,6 +543,24 @@ function Dashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* Email Candidate Button - Only show if email exists */}
+              {candidate.email && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4 }}
+                  className="mt-6 text-center"
+                >
+                  <button
+                    onClick={() => openEmailAssistant(candidate)}
+                    className="inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-indigo-400 bg-white/[0.02] hover:bg-white/[0.05] border-2 border-indigo-500/30 hover:border-indigo-400/50 transition-all duration-200"
+                  >
+                    <Mail className="w-5 h-5" />
+                    Email Candidate
+                  </button>
+                </motion.div>
+              )}
             </motion.div>
           ))}
           </div> {/* Close analysis-report */}

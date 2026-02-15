@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Clock, FileText, TrendingUp, Calendar, Users, Award, Trash2, Download } from 'lucide-react';
+import { Clock, FileText, TrendingUp, Calendar, Users, Award, Trash2, Download, Mail } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import jsPDF from 'jspdf';
@@ -8,10 +9,23 @@ import html2canvas from 'html2canvas';
 
 function History() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [downloadingPDF, setDownloadingPDF] = useState(false);
+
+  const openEmailAssistant = (candidate, jobTitle) => {
+    navigate('/email-assistant', {
+      state: {
+        toEmail: candidate.email,
+        candidateName: candidate.filename?.replace(/\.(pdf|docx|txt)$/i, '') || 'Candidate',
+        jobTitle: jobTitle,
+        missingSkills: candidate.breakdown?.keyword?.missing_keywords || candidate.missing_skills || [],
+        resumeSummary: candidate.ai_summary || ''
+      }
+    });
+  };
 
   useEffect(() => {
     if (user) {
@@ -457,6 +471,19 @@ function History() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Email Candidate Button - Only show if email exists */}
+                    {candidate.email && (
+                      <div className="mt-4 text-center">
+                        <button
+                          onClick={() => openEmailAssistant(candidate, selectedRecord.job_title)}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-indigo-400 bg-white/[0.02] hover:bg-white/[0.05] border border-indigo-500/30 hover:border-indigo-400/50 transition-all duration-200 text-sm"
+                        >
+                          <Mail className="w-4 h-4" />
+                          Email Candidate
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

@@ -1,4 +1,6 @@
 @echo off
+chcp 65001 >nul
+set PYTHONIOENCODING=utf-8
 echo Starting Python Flask Backend...
 echo.
 echo Loading SBERT model (this may take a moment)...
