@@ -9,3 +9,4 @@ google-generativeai
 python-dotenv
 supabase
 PyJWT
+gunicorn

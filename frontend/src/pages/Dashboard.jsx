@@ -9,6 +9,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { API_BASE_URL } from '../config/api';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -71,7 +72,7 @@ function Dashboard() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          const settingsResponse = await axios.get('http://127.0.0.1:5000/settings', {
+          const settingsResponse = await axios.get(`${API_BASE_URL}/settings`, {
             headers: {
               'Authorization': `Bearer ${session.access_token}`
             }
@@ -99,7 +100,7 @@ function Dashboard() {
       formData.append('keyword_weight', keywordWeight.toString());
       formData.append('semantic_weight', semanticWeight.toString());
 
-      const response = await axios.post('http://127.0.0.1:5000/analyze', formData, {
+      const response = await axios.post(`${API_BASE_URL}/analyze`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

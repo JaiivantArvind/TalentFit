@@ -5,6 +5,7 @@ import { Settings as SettingsIcon, Trash2, LogOut, AlertTriangle, Sliders, PenTo
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
 function Settings() {
   const navigate = useNavigate();
@@ -47,7 +48,7 @@ function Settings() {
       }
 
       // Call backend with auth token
-      const response = await axios.get('http://127.0.0.1:5000/settings', {
+      const response = await axios.get(`${API_BASE_URL}/settings`, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
@@ -111,7 +112,7 @@ function Settings() {
       });
 
       // Call backend with auth token
-      const response = await axios.post('http://127.0.0.1:5000/settings', {
+      const response = await axios.post(`${API_BASE_URL}/settings`, {
         keyword_weight: keywordWeight,
         semantic_weight: semanticWeight,
         signature_name: signatureName,

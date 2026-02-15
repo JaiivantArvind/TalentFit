@@ -4,6 +4,7 @@ import axios from 'axios';
 import { motion } from 'framer-motion';
 import { Mail, Send, Sparkles, FileText, XCircle, Info, ArrowLeft, Loader2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import { API_BASE_URL } from '../config/api';
 
 const EmailAssistant = () => {
   const location = useLocation();
@@ -34,7 +35,7 @@ const EmailAssistant = () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
-          const response = await axios.get('http://127.0.0.1:5000/settings', {
+          const response = await axios.get(`${API_BASE_URL}/settings`, {
             headers: {
               'Authorization': `Bearer ${session.access_token}`
             }
@@ -149,7 +150,7 @@ Recruitment Team`
 
     setIsGenerating(true);
     try {
-      const response = await axios.post('http://127.0.0.1:5000/generate_email', {
+      const response = await axios.post(`${API_BASE_URL}/generate_email`, {
         candidate_name: candidateName,
         job_title: jobTitle,
         missing_skills: missingSkills,
