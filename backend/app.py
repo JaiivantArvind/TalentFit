@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from sentence_transformers import SentenceTransformer
+# Import SentenceTransformer lazily - don't import at top level
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import pypdf
@@ -14,8 +14,6 @@ import json
 import re
 import jwt
 from dotenv import load_dotenv
-import google.generativeai as genai
-from supabase import create_client, Client
 
 # Load environment variables
 load_dotenv()
@@ -33,32 +31,40 @@ CORS(app,
      allow_headers=["Content-Type", "Authorization", "x-client-info", "apikey"])
 
 # ---------------------------------------------------------------------------
-# CONFIGURATION
+# CONFIGURATION - Lazy Loading to prevent startup blocking
 # ---------------------------------------------------------------------------
 
-# Configure Google Gemini
+# Configure Google Gemini (lazy)
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('models/gemini-2.5-flash')
-    print("[SUCCESS] Gemini API configured successfully!", flush=True)
-else:
-    gemini_model = None
-    print("[WARNING] GEMINI_API_KEY not set. AI summaries will be disabled.", flush=True)
+gemini_model = None
 
-# Configure Supabase
+def get_gemini_model():
+    global gemini_model
+    if gemini_model is None and GEMINI_API_KEY:
+        try:
+            import google.generativeai as genai
+            genai.configure(api_key=GEMINI_API_KEY)
+            gemini_model = genai.GenerativeModel('models/gemini-2.5-flash')
+            print("[SUCCESS] Gemini API configured successfully!", flush=True)
+        except Exception as e:
+            print(f"[ERROR] Failed to init Gemini: {e}", flush=True)
+    return gemini_model
+
+# Configure Supabase (lazy)
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
-supabase: Client = None
+supabase = None
 
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        print("[SUCCESS] Supabase client configured successfully!", flush=True)
-    except Exception as e:
-        print(f"[ERROR] Failed to init Supabase: {e}", flush=True)
-else:
-    print("[WARNING] SUPABASE_URL or SUPABASE_KEY not set. Settings will not save.", flush=True)
+def get_supabase_client():
+    global supabase
+    if supabase is None and SUPABASE_URL and SUPABASE_KEY:
+        try:
+            from supabase import create_client, Client
+            supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+            print("[SUCCESS] Supabase client configured successfully!", flush=True)
+        except Exception as e:
+            print(f"[ERROR] Failed to init Supabase: {e}", flush=True)
+    return supabase
 
 # Lazy Load SBERT
 sbert_model = None
@@ -66,6 +72,7 @@ def get_sbert_model():
     global sbert_model
     if sbert_model is None:
         print("Loading SBERT model (first request only)...", flush=True)
+        from sentence_transformers import SentenceTransformer
         sbert_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
         sbert_model.max_seq_length = 128
         print("[OK] Model loaded successfully!", flush=True)
@@ -154,7 +161,9 @@ def parse_email(text):
     return match.group(0) if match else None
 
 def generate_ai_summary(candidate_data, jd_text):
-    if not gemini_model: return "AI Summary unavailable (No Key)."
+    model = get_gemini_model()
+    if not model:
+        return "AI Summary unavailable (No Key)."
     try:
         prompt = f"""Analyze this candidate for the job.
         Job: {jd_text[:300]}...
@@ -162,7 +171,7 @@ def generate_ai_summary(candidate_data, jd_text):
         Skills: {', '.join(candidate_data['found_skills'][:5])}
         
         Provide a 2 sentence professional summary and a Recommendation (Strong/Good/Weak Match)."""
-        response = gemini_model.generate_content(prompt)
+        response = model.generate_content(prompt)
         return response.text.strip()
     except:
         return "AI Analysis failed."
@@ -171,9 +180,18 @@ def generate_ai_summary(candidate_data, jd_text):
 # CORE ENDPOINTS
 # ---------------------------------------------------------------------------
 
+@app.route('/')
+def home():
+    """Health check endpoint for Render"""
+    return jsonify({
+        "status": "healthy",
+        "service": "TalentFit Backend",
+        "version": "1.0.0"
+    }), 200
+
 @app.route('/test', methods=['GET'])
 def test_route():
-    return "Test successful!"
+    return jsonify({"message": "Test successful!"}), 200
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
@@ -235,13 +253,15 @@ def analyze():
 def generate_email():
     try:
         data = request.json
-        if not gemini_model: return jsonify({'error': 'No AI Key'}), 503
+        model = get_gemini_model()
+        if not model:
+            return jsonify({'error': 'AI service unavailable'}), 503
         
         prompt = f"""Write a recruiting email to {data.get('candidate_name')} for {data.get('job_title')}.
         Mention missing skills: {', '.join(data.get('missing_skills', []))}.
         Return ONLY valid JSON: {{'subject': '...', 'body': '...'}}"""
         
-        response = gemini_model.generate_content(prompt)
+        response = model.generate_content(prompt)
         text = response.text.replace('```json', '').replace('```', '').strip()
         return jsonify(json.loads(text)), 200
     except Exception as e:
@@ -259,6 +279,7 @@ def get_settings():
     if not auth_header:
         return jsonify({'error': 'No authorization header provided'}), 401
     
+    supabase = get_supabase_client()
     if not supabase:
         return jsonify({'error': 'Database unavailable'}), 500
 
@@ -324,7 +345,8 @@ def save_settings():
     
     if not auth_header:
         return jsonify({'error': 'No authorization header provided'}), 401
-        
+    
+    supabase = get_supabase_client()
     if not supabase:
         return jsonify({'error': 'Database unavailable'}), 500
 
