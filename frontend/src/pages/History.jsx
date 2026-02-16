@@ -6,6 +6,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import ReactMarkdown from 'react-markdown';
 
 function History() {
   const { user } = useAuth();
@@ -404,7 +405,9 @@ function History() {
                           </div>
                           <div className="flex-1">
                             <h4 className="text-base font-semibold text-purple-300 mb-2">AI Analysis Summary</h4>
-                            <p className="text-white/80 text-sm leading-relaxed">{candidate.ai_summary}</p>
+                            <div className="text-white/80 text-sm leading-relaxed prose prose-invert prose-sm max-w-none">
+                              <ReactMarkdown>{candidate.ai_summary}</ReactMarkdown>
+                            </div>
                           </div>
                         </div>
                       </div>

@@ -15,6 +15,7 @@ import re
 import jwt
 from dotenv import load_dotenv
 import google.generativeai as genai
+import resend
 
 # Load environment variables
 load_dotenv()
@@ -38,6 +39,14 @@ CORS(app,
 # Configure Google Gemini
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 
+# Configure Resend Email API
+RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
+if RESEND_API_KEY:
+    resend.api_key = RESEND_API_KEY
+    print("[SUCCESS] Resend API configured!", flush=True)
+else:
+    print("[WARNING] RESEND_API_KEY not set. Email sending will fail.", flush=True)
+
 # Configure genai immediately for embeddings API
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -52,7 +61,7 @@ def get_gemini_model():
     global gemini_model
     if gemini_model is None and GEMINI_API_KEY:
         try:
-            gemini_model = genai.GenerativeModel('models/gemini-2.5-flash')
+            gemini_model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
             print("[SUCCESS] Gemini generative model loaded!", flush=True)
         except Exception as e:
             print(f"[ERROR] Failed to load Gemini model: {e}", flush=True)
@@ -142,8 +151,13 @@ def calculate_semantic_score(resume_text, job_desc):
     Replaces the heavy SBERT model with Gemini API embeddings.
     Total RAM usage: ~0MB vs 500MB+
     """
+    # 1. THE SANITY CHECK: If they are the same, don't waste an API call
+    if resume_text.strip().lower() == job_desc.strip().lower():
+        print("[DEBUG] Exact text match detected. Returning 100%", flush=True)
+        return {'score': 100.0}
+    
     try:
-        # 1. Get embeddings for both texts via API
+        # 2. Get embeddings for both texts via API
         # Note: 'models/embedding-001' is the standard high-speed model
         res_res = genai.embed_content(
             model="models/embedding-001",
@@ -156,12 +170,18 @@ def calculate_semantic_score(resume_text, job_desc):
             task_type="clustering"
         )
         
-        # 2. Extract the vector lists
+        # 3. Extract the vector lists
         res_vector = np.array(res_res['embedding']).reshape(1, -1)
         job_vector = np.array(job_res['embedding']).reshape(1, -1)
         
-        # 3. Calculate similarity (Result is between 0 and 1)
+        # 4. Calculate similarity (Result is between 0 and 1)
         similarity = cosine_similarity(res_vector, job_vector)[0][0]
+        
+        # 5. THE CALIBRATION: Semantic similarity rarely hits 1.0 
+        # unless strings are identical. We "stretch" the score 
+        # so that high matches (0.98+) feel like 100% to the user.
+        if similarity > 0.98:
+            return {'score': 100.0}
         
         # Return formatted score (0-100 scale to match existing code expectations)
         return {'score': round(float(similarity) * 100, 2)}
@@ -428,6 +448,52 @@ def save_settings():
         traceback.print_exc()
         print("="*60 + "\n", flush=True)
         return jsonify({'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# SEND EMAIL ENDPOINT
+# ---------------------------------------------------------------------------
+
+@app.route('/send-email', methods=['POST'])
+def send_email():
+    """
+    Send an email using Resend API.
+    Expects JSON: { to_email, subject, email_content }
+    """
+    try:
+        data = request.json
+        to_email = data.get('to_email')
+        subject = data.get('subject')
+        email_content = data.get('email_content')
+        
+        # Validation
+        if not to_email or not subject or not email_content:
+            return jsonify({'error': 'Missing required fields: to_email, subject, email_content'}), 400
+        
+        if not RESEND_API_KEY:
+            return jsonify({'error': 'Email service not configured. Please set RESEND_API_KEY.'}), 500
+        
+        print(f"[INFO] Sending email to: {to_email}", flush=True)
+        print(f"[INFO] Subject: {subject}", flush=True)
+        
+        # Send email via Resend
+        response = resend.Emails.send({
+            "from": "onboarding@resend.dev",
+            "to": to_email,
+            "subject": subject,
+            "html": email_content
+        })
+        
+        print(f"[SUCCESS] Email sent! Response: {response}", flush=True)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Email sent successfully',
+            'email_id': response.get('id')
+        }), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to send email: {e}", flush=True)
+        return jsonify({'error': f'Failed to send email: {str(e)}'}), 500
 
 # ---------------------------------------------------------------------------
 # MAIN

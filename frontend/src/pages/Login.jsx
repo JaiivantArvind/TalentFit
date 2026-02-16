@@ -13,7 +13,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
-  const { signIn, signUp } = useAuth();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   // Update mode if location state changes
@@ -45,6 +45,19 @@ export default function Login() {
     } catch (err) {
       setError(err.message || 'An error occurred');
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) throw error;
+      // Redirect happens automatically via OAuth flow
+    } catch (err) {
+      setError(err.message || 'Failed to sign in with Google');
       setLoading(false);
     }
   };
@@ -157,6 +170,28 @@ export default function Login() {
               )}
             </motion.button>
           </form>
+
+          {/* Divider */}
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/10"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-4 bg-white/[0.03] text-white/50">Or continue with</span>
+            </div>
+          </div>
+
+          {/* Google Sign In Button */}
+          <motion.button
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-gray-800 font-semibold py-3 rounded-xl transition-all shadow-lg border border-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <img src="/google-icon.svg" alt="Google" className="w-5 h-5" />
+            Sign in with Google
+          </motion.button>
 
           <div className="mt-6 text-center">
             <p className="text-white/50 text-sm">

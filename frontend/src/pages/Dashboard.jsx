@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { API_BASE_URL } from '../config/api';
+import ReactMarkdown from 'react-markdown';
 
 function Dashboard() {
   const { user } = useAuth();
@@ -359,7 +360,9 @@ function Dashboard() {
                     </div>
                     <div className="flex-1">
                       <h4 className="text-lg font-semibold text-purple-300 mb-2">AI Analysis Summary</h4>
-                      <p className="text-white/80 leading-relaxed">{candidate.ai_summary}</p>
+                      <div className="text-white/80 leading-relaxed prose prose-invert prose-sm max-w-none">
+                        <ReactMarkdown>{candidate.ai_summary}</ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 </motion.div>

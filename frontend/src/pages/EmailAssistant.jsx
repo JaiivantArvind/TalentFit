@@ -25,6 +25,12 @@ const EmailAssistant = () => {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
+  const [sendError, setSendError] = useState('');
+  
+  // Recruiter email state
+  const [recruiterEmail, setRecruiterEmail] = useState('');
   
   // Signature state
   const [signature, setSignature] = useState('');
@@ -229,6 +235,45 @@ Recruitment Team`
     }, 1000);
   };
 
+  // Send email via backend API
+  const handleSendEmail = async () => {
+    if (!recruiterEmail || !subject || !body) {
+      alert('Please fill in recruiter email, subject, and message before sending.');
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(recruiterEmail)) {
+      alert('Please enter a valid email address.');
+      return;
+    }
+
+    setIsSending(true);
+    setSendError('');
+    setSendSuccess(false);
+
+    try {
+      const response = await axios.post(`${API_BASE_URL}/send-email`, {
+        to_email: recruiterEmail,
+        subject: subject,
+        email_content: body.replace(/\n/g, '<br>')
+      });
+
+      if (response.data.success) {
+        setSendSuccess(true);
+        setTimeout(() => {
+          navigate(-1);
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Error sending email:', error);
+      setSendError(error.response?.data?.error || 'Failed to send email. Please try again.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#030303] font-sans">
       <div className="container mx-auto px-6 py-12">
@@ -356,10 +401,65 @@ Recruitment Team`
 
                 {/* Email Form */}
                 <div className="space-y-4">
+                  {/* Success Message */}
+                  {sendSuccess && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-emerald-500/20 border border-emerald-500/50 rounded-lg p-4 flex items-center gap-3"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-emerald-500/30 flex items-center justify-center">
+                        <span className="text-emerald-300 text-lg">✓</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-emerald-300 font-semibold">Email sent successfully!</p>
+                        <p className="text-emerald-200/70 text-sm">Redirecting you back...</p>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Error Message */}
+                  {sendError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-rose-500/20 border border-rose-500/50 rounded-lg p-4 flex items-center gap-3"
+                    >
+                      <XCircle className="w-6 h-6 text-rose-300" />
+                      <div className="flex-1">
+                        <p className="text-rose-300 font-semibold">Failed to send email</p>
+                        <p className="text-rose-200/70 text-sm">{sendError}</p>
+                      </div>
+                      <button
+                        onClick={() => setSendError('')}
+                        className="text-rose-300 hover:text-rose-200 transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* Recruiter Email Field */}
+                  <div>
+                    <label className="block text-sm font-medium text-white/80 mb-2">
+                      Recruiter Email <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={recruiterEmail}
+                      onChange={(e) => setRecruiterEmail(e.target.value)}
+                      placeholder="recruiter@company.com"
+                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/30 focus:outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                    <p className="text-xs text-white/50 mt-1">
+                      The email will be sent from our system to this address
+                    </p>
+                  </div>
+
                   {/* To Field */}
                   <div>
                     <label className="block text-sm font-medium text-white/80 mb-2">
-                      To
+                      Candidate Email <span className="text-white/40 text-xs">(for reference)</span>
                     </label>
                     <input
                       type="email"
@@ -400,6 +500,39 @@ Recruitment Team`
 
                   {/* Action Buttons */}
                   <div className="flex flex-col gap-3 pt-4">
+                    {/* Send Email via Backend */}
+                    <button
+                      onClick={handleSendEmail}
+                      disabled={isSending || sendSuccess}
+                      className="w-full px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg transition-all font-medium shadow-lg hover:shadow-indigo-500/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none"
+                    >
+                      {isSending ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          Sending Email...
+                        </>
+                      ) : sendSuccess ? (
+                        <>
+                          <span className="text-lg">✓</span>
+                          Email Sent!
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-5 h-5" />
+                          Send Email via TalentFit
+                        </>
+                      )}
+                    </button>
+
+                    <div className="relative">
+                      <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-white/10"></div>
+                      </div>
+                      <div className="relative flex justify-center text-xs">
+                        <span className="px-3 bg-white/[0.03] text-white/40">Or use external email client</span>
+                      </div>
+                    </div>
+
                     <div className="flex gap-3">
                       {/* Default Email App Button */}
                       <button
@@ -427,11 +560,14 @@ Recruitment Team`
                       onClick={() => {
                         setSubject('');
                         setBody('');
+                        setRecruiterEmail('');
+                        setSendError('');
+                        setSendSuccess(false);
                       }}
                       className="w-full px-6 py-2.5 bg-white/5 hover:bg-white/10 text-white/80 rounded-lg transition-all font-medium border border-white/10"
                     >
                       <XCircle className="w-4 h-4 inline mr-2" />
-                      Clear
+                      Clear All
                     </button>
                   </div>
                 </div>
@@ -444,6 +580,7 @@ Recruitment Team`
                   Tips
                 </h3>
                 <ul className="text-sm text-white/70 space-y-1">
+                  <li>• <strong className="text-white/90">Send via TalentFit:</strong> Emails are sent directly from our backend using Resend API</li>
                   <li>• Use static templates for quick, standardized responses</li>
                   <li>• Let AI generate personalized emails based on candidate data</li>
                   <li>• Edit the generated email to add your personal touch</li>
