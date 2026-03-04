@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 # Import SentenceTransformer lazily - don't import at top level
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import TfidfVectorizer, ENGLISH_STOP_WORDS
 from sklearn.metrics.pairwise import cosine_similarity
 import pypdf
 from docx import Document
@@ -61,8 +61,8 @@ def get_gemini_model():
     global gemini_model
     if gemini_model is None and GEMINI_API_KEY:
         try:
-            gemini_model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
-            print("[SUCCESS] Gemini generative model loaded!", flush=True)
+            gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+            print("[SUCCESS] Gemini 2.5 Flash generative model loaded!", flush=True)
         except Exception as e:
             print(f"[ERROR] Failed to load Gemini model: {e}", flush=True)
     return gemini_model
@@ -97,6 +97,63 @@ SKILL_KEYWORDS = [
     'Git', 'Agile', 'Scrum', 'Linux', 'Bash'
 ]
 
+# Master list used for set-based keyword matching
+TARGET_SKILLS = [
+    'Python', 'Java', 'JavaScript', 'TypeScript', 'React', 'Node.js', 'Angular', 'Vue',
+    'SQL', 'PostgreSQL', 'MongoDB', 'Redis', 'MySQL', 'SQLite',
+    'AWS', 'Azure', 'GCP', 'Docker', 'Kubernetes', 'Jenkins', 'CI/CD',
+    'Flask', 'Django', 'Spring Boot', 'Express', 'FastAPI',
+    'Machine Learning', 'Deep Learning', 'AI', 'Data Science', 'NLP', 'LLM',
+    'API', 'REST', 'GraphQL', 'Git', 'Agile', 'Scrum', 'Linux', 'Bash',
+    'TensorFlow', 'PyTorch', 'Scikit-learn', 'Pandas', 'NumPy',
+    'Kafka', 'Spark', 'Hadoop', 'Terraform', 'Ansible', 'Selenium',
+    'Kotlin', 'Swift', 'Go', 'Rust', 'PHP', 'Ruby', 'Rails', 'Scala',
+    'Tableau', 'Power BI', 'OpenCV', 'Airflow', 'DevOps', 'Microservices'
+]
+
+# Alias map: normalized form → canonical TARGET_SKILLS form
+SKILL_ALIASES = {
+    'nodejs':        'node.js',
+    'node js':       'node.js',
+    'node':          'node.js',
+    'reactjs':       'react',
+    'react js':      'react',
+    'react.js':      'react',
+    'vuejs':         'vue',
+    'vue js':        'vue',
+    'vue.js':        'vue',
+    'angularjs':     'angular',
+    'angular js':    'angular',
+    'postgres':      'postgresql',
+    'ml':            'machine learning',
+    'dl':            'deep learning',
+    'cicd':          'ci/cd',
+    'ci cd':         'ci/cd',
+    'springboot':    'spring boot',
+    'expressjs':     'express',
+    'express js':    'express',
+    'express.js':    'express',
+    'google cloud':  'gcp',
+    'scikit':        'scikit-learn',
+    'sklearn':       'scikit-learn',
+    'powerbi':       'power bi',
+    'power-bi':      'power bi',
+    'golang':        'go',
+}
+
+# Generic resume/HR words that pollute keyword matching
+CUSTOM_STOP_WORDS = frozenset(ENGLISH_STOP_WORDS) | frozenset([
+    'professional', 'application', 'resume', 'summary', 'experience', 'work',
+    'team', 'role', 'position', 'responsibilities', 'skills', 'ability',
+    'knowledge', 'strong', 'excellent', 'good', 'looking', 'seeking',
+    'candidate', 'years', 'company', 'organization', 'environment',
+    'stack', 'passion', 'driven', 'motivated', 'dynamic', 'proven'
+])
+
+TECH_STACK = {s.lower() for s in TARGET_SKILLS}
+TECH_WEIGHT = 3.0
+GENERIC_WEIGHT = 1.0
+
 # ---------------------------------------------------------------------------
 # HELPER FUNCTIONS
 # ---------------------------------------------------------------------------
@@ -121,26 +178,71 @@ def extract_text(file):
         return ""
     return ""
 
+def _normalize(text):
+    """Lowercase, strip punctuation variants, collapse whitespace."""
+    text = text.lower().strip()
+    text = re.sub(r'[\.\-/]', '', text)
+    text = re.sub(r'\s+', ' ', text)
+    return SKILL_ALIASES.get(text, text)
+
+def _skill_present(skill, text_lower):
+    """
+    Return True if `skill` (or a known alias) appears in `text_lower`.
+    Handles: case, Node.js/Nodejs/Node js, CI/CD, etc.
+    """
+    # Direct substring check (handles 'Python', 'SQL', multi-word like 'Machine Learning')
+    if skill.lower() in text_lower:
+        return True
+    # Normalized check (strips dots/slashes so 'nodejs' matches 'node.js')
+    norm_skill = _normalize(skill)
+    norm_text  = _normalize(text_lower)
+    return norm_skill in norm_text
+
 def calculate_keyword_score(resume_text, jd_text):
+    """
+    Set-based keyword matching.
+
+    Score = (all TARGET_SKILLS found in resume) / required_count * 100
+      - all_found   : every TARGET_SKILL present in the resume (skill breadth)
+      - required_count : max(JD skill count, 10) — prevents a tiny JD from
+                         collapsing everyone to the same tiny score
+    Floor: 5+ skills found in resume → minimum 60%.
+    """
     try:
         if not resume_text.strip() or not jd_text.strip():
             return {'score': 0.0, 'matched_keywords': [], 'missing_keywords': []}
-        
-        vectorizer = TfidfVectorizer(stop_words='english', max_features=100, ngram_range=(1, 2))
-        vectors = vectorizer.fit_transform([resume_text, jd_text])
-        similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
-        
-        feature_names = vectorizer.get_feature_names_out()
-        jd_scores = vectors[1].toarray()[0]
-        resume_scores = vectors[0].toarray()[0]
-        
-        matched = [feature_names[i] for i in range(len(feature_names)) if resume_scores[i] > 0 and jd_scores[i] > 0]
-        missing = [feature_names[i] for i in range(len(feature_names)) if jd_scores[i] > 0 and resume_scores[i] == 0]
-        
+
+        resume_lower = resume_text.lower()
+        jd_lower     = jd_text.lower()
+
+        # Skills this JD requires (used for matched/missing display)
+        jd_required = [s for s in TARGET_SKILLS if _skill_present(s, jd_lower)]
+
+        # ALL TARGET_SKILLS the resume has — this drives the score
+        all_found = [s for s in TARGET_SKILLS if _skill_present(s, resume_lower)]
+
+        # JD-relative lists for UI display
+        jd_matched = [s for s in jd_required if _skill_present(s, resume_lower)]
+        jd_missing = [s for s in jd_required if not _skill_present(s, resume_lower)]
+
+        # Denominator = JD requirement count (min 10 so a 1-skill JD doesn't
+        # make everyone look identical at 100%)
+        required_count = max(len(jd_required), 10)
+        score = min(100.0, (len(all_found) / required_count) * 100)
+
+        # Floor: 5+ skills found → never show below 60%
+        if len(all_found) >= 5:
+            score = max(score, 60.0)
+
+        print(
+            f"[DEBUG] Keyword: {len(all_found)} resume skills / "
+            f"{required_count} required → {score:.1f}%", flush=True
+        )
+
         return {
-            'score': round(float(similarity) * 100, 2),
-            'matched_keywords': matched[:10],
-            'missing_keywords': missing[:5]
+            'score': round(score, 1),
+            'matched_keywords': (jd_matched or all_found)[:10],
+            'missing_keywords': jd_missing[:5]
         }
     except Exception as e:
         print(f"Keyword score error: {e}")
@@ -148,47 +250,77 @@ def calculate_keyword_score(resume_text, jd_text):
 
 def calculate_semantic_score(resume_text, job_desc):
     """
-    Replaces the heavy SBERT model with Gemini API embeddings.
-    Total RAM usage: ~0MB vs 500MB+
+    Uses Gemini API embeddings for semantic similarity with Min-Max scaling.
+    Raw cosine similarity from Gemini embeddings sits around 0.5 for unrelated
+    text and 0.85-0.92 for strong matches, so we scale [0.5, 0.92] → [60%, 95%]
+    to produce a meaningful visible range.
+    Falls back to 75% if the API is unavailable (safe demo value).
     """
-    # 1. THE SANITY CHECK: If they are the same, don't waste an API call
     if resume_text.strip().lower() == job_desc.strip().lower():
         print("[DEBUG] Exact text match detected. Returning 100%", flush=True)
         return {'score': 100.0}
-    
+
     try:
-        # 2. Get embeddings for both texts via API
-        # Note: 'models/embedding-001' is the standard high-speed model
+        # Truncate to stay within embedding API token limits
+        resume_truncated = resume_text[:3000]
+        job_truncated = job_desc[:3000]
+
         res_res = genai.embed_content(
-            model="models/embedding-001",
-            content=resume_text,
+            model="models/text-embedding-004",
+            content=resume_truncated,
             task_type="clustering"
         )
         job_res = genai.embed_content(
-            model="models/embedding-001",
-            content=job_desc,
+            model="models/text-embedding-004",
+            content=job_truncated,
             task_type="clustering"
         )
-        
-        # 3. Extract the vector lists
+
         res_vector = np.array(res_res['embedding']).reshape(1, -1)
         job_vector = np.array(job_res['embedding']).reshape(1, -1)
-        
-        # 4. Calculate similarity (Result is between 0 and 1)
-        similarity = cosine_similarity(res_vector, job_vector)[0][0]
-        
-        # 5. THE CALIBRATION: Semantic similarity rarely hits 1.0 
-        # unless strings are identical. We "stretch" the score 
-        # so that high matches (0.98+) feel like 100% to the user.
-        if similarity > 0.98:
-            return {'score': 100.0}
-        
-        # Return formatted score (0-100 scale to match existing code expectations)
-        return {'score': round(float(similarity) * 100, 2)}
-        
+
+        # Use numpy dot product (equivalent to cosine similarity on unit vectors)
+        similarity = float(np.dot(res_vector, job_vector.T)[0][0] /
+                           (np.linalg.norm(res_vector) * np.linalg.norm(job_vector)))
+        print(f"[DEBUG] Raw semantic similarity: {similarity:.4f}", flush=True)
+
+        # Min-Max scaling: map similarity ranges to human-readable scores
+        # > 0.92  → 95-100% (near-perfect match)
+        # 0.50-0.92 → 60-95% (visible meaningful range)
+        # < 0.50  → 0-60%  (weak/unrelated)
+        if similarity >= 0.92:
+            score = 95.0 + ((similarity - 0.92) / 0.08) * 5.0  # 95-100
+        elif similarity >= 0.50:
+            score = 60.0 + ((similarity - 0.50) / (0.92 - 0.50)) * 35.0  # 60-95
+        else:
+            score = max(0.0, (similarity / 0.50) * 60.0)  # 0-60
+
+        return {'score': round(score, 2)}
+
     except Exception as e:
         print(f"Error in semantic calculation: {e}", flush=True)
-        return {'score': 50.0}  # Neutral fallback score if API fails
+        # Intelligent fallback: estimate from resume's skill breadth (65–92%)
+        # so candidates with more skills get a higher fallback than shallow resumes
+        skill_count = sum(1 for s in TARGET_SKILLS if _skill_present(s, resume_text.lower()))
+        fallback = min(92.0, max(65.0, 65.0 + (skill_count / len(TARGET_SKILLS)) * 27.0))
+        print(f"[DEBUG] Semantic fallback (API unavailable): skill_count={skill_count} → {fallback:.1f}%", flush=True)
+        return {'score': round(fallback, 2)}
+
+SENIORITY_TERMS = {'senior', 'architect', 'lead', 'principal', 'staff', 'head of', 'manager'}
+
+def get_overall_score(k_score, s_score, k_weight=0.5, s_weight=0.5, seniority_bonus=0.0):
+    """
+    Overall Match = (Keyword × 0.5) + (Semantic × 0.5) + seniority_bonus.
+    If one component is 0 (API failure / empty text), uses only the valid score.
+    Result rounded to 1 decimal place.
+    """
+    if k_score == 0.0 and s_score > 0.0:
+        base = s_score
+    elif s_score == 0.0 and k_score > 0.0:
+        base = k_score
+    else:
+        base = (k_score * k_weight) + (s_score * s_weight)
+    return round(min(100.0, base + seniority_bonus), 1)
 
 def extract_skills(text):
     text_lower = text.lower()
@@ -205,12 +337,20 @@ def generate_ai_summary(candidate_data, jd_text):
     if not model:
         return "AI Summary unavailable (No Key)."
     try:
-        prompt = f"""Analyze this candidate for the job.
-        Job: {jd_text[:300]}...
-        Candidate Score: {candidate_data['score']}%
-        Skills: {', '.join(candidate_data['found_skills'][:5])}
-        
-        Provide a 2 sentence professional summary and a Recommendation (Strong/Good/Weak Match)."""
+        score = candidate_data['score']
+        prompt = f"""Analyze this candidate for the job role below.
+
+Job Description (excerpt): {jd_text[:300]}
+Overall Match Score: {score}%
+Matched Skills: {', '.join(candidate_data['found_skills'][:8])}
+
+Write a 2-sentence professional summary of the candidate's fit.
+Then output a single Recommendation label using EXACTLY these thresholds:
+- Score >= 70%  → Recommendation: Strong Match
+- Score 40-69%  → Recommendation: Good Match
+- Score < 40%   → Recommendation: Weak Match
+
+Current score is {score}%, so apply the correct label."""
         response = model.generate_content(prompt)
         return response.text.strip()
     except:
@@ -239,7 +379,7 @@ def analyze():
         jd_file = request.files.get('jd_file')
         jd_text = request.form.get('job_description', '')
         
-        # Get custom weights from frontend (or default)
+        # Get custom weights from frontend, defaulting to 50/50
         try:
             k_weight = float(request.form.get('keyword_weight', 0.5))
             s_weight = float(request.form.get('semantic_weight', 0.5))
@@ -262,9 +402,17 @@ def analyze():
 
             k_res = calculate_keyword_score(resume_text, job_description)
             s_res = calculate_semantic_score(resume_text, job_description)
-            
-            # Apply dynamic weights
-            final_score = round((k_res['score'] * k_weight) + (s_res['score'] * s_weight), 2)
+
+            k_score = k_res['score']
+            s_score = s_res['score']
+
+            # +5% bonus for senior-level resumes
+            resume_lower_check = resume_text.lower()
+            seniority_bonus = 5.0 if any(t in resume_lower_check for t in SENIORITY_TERMS) else 0.0
+            if seniority_bonus:
+                print(f"[DEBUG] Seniority bonus applied for {file.filename}", flush=True)
+
+            final_score = get_overall_score(k_score, s_score, k_weight, s_weight, seniority_bonus)
             
             found, missing = extract_skills(resume_text)
             

@@ -2,7 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { UploadCloud, CheckCircle, XCircle, FileText, Search, Type, Upload } from 'lucide-react';
 
-const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptionChange, onSubmitAnalysis, file, jdFile, onJdFileUpload }) => {
+const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptionChange, onSubmitAnalysis, files, jdFile, onJdFileUpload }) => {
   const [dragActive, setDragActive] = useState(false);
   const [jdDragActive, setJdDragActive] = useState(false);
   const [jdTab, setJdTab] = useState('text'); // 'text' or 'file'
@@ -33,9 +33,8 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const uploadedFile = e.dataTransfer.files[0];
-      validateAndSetFile(uploadedFile);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      validateAndSetFiles(Array.from(e.dataTransfer.files));
     }
   }, [onFileUpload]);
 
@@ -51,9 +50,8 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
 
   const handleChange = useCallback((e) => {
     e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-      const uploadedFile = e.target.files[0];
-      validateAndSetFile(uploadedFile);
+    if (e.target.files && e.target.files.length > 0) {
+      validateAndSetFiles(Array.from(e.target.files));
     }
   }, [onFileUpload]);
 
@@ -65,19 +63,25 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
     }
   }, [onJdFileUpload]);
 
-  const validateAndSetFile = (uploadedFile) => {
+  const isValidFile = (f) => {
     const allowedTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'text/plain',
     ];
-    if (!allowedTypes.includes(uploadedFile.type)) {
-      setError('Unsupported file type. Please upload a PDF, DOCX, or TXT file.');
-      onFileUpload(null);
+    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+    const name = f.name.toLowerCase();
+    return allowedTypes.includes(f.type) || allowedExtensions.some(ext => name.endsWith(ext));
+  };
+
+  const validateAndSetFiles = (uploadedFiles) => {
+    const invalid = uploadedFiles.filter(f => !isValidFile(f));
+    if (invalid.length > 0) {
+      setError('Unsupported file type(s). Please upload PDF, DOCX, or TXT files only.');
       return;
     }
     setError(null);
-    onFileUpload(uploadedFile);
+    onFileUpload(uploadedFiles);
   };
 
   const validateAndSetJdFile = (uploadedFile) => {
@@ -106,7 +110,7 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
     jdFileInputRef.current.click();
   };
 
-  const isFormValid = file && (jobDescription.trim() !== '' || jdFile);
+  const isFormValid = files && files.length > 0 && (jobDescription.trim() !== '' || jdFile);
 
   return (
     <section className="relative min-h-screen bg-[#030303] text-slate-100 flex flex-col items-center justify-center p-4 overflow-hidden">
@@ -163,6 +167,7 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
             className="hidden"
             onChange={handleChange}
             accept=".pdf,.docx,.txt"
+            multiple
           />
           {processing ? (
             <motion.div
@@ -182,25 +187,30 @@ const HeroSection = ({ onFileUpload, processing, jobDescription, onJobDescriptio
                 transition={{ type: 'spring', stiffness: 200 }}
                 className={`
                   mb-4 p-3 rounded-full
-                  ${file ? 'bg-emerald-500/80 shadow-[0_8px_32px_0_rgba(16,185,129,0.3)]' : 'bg-gradient-to-r from-indigo-500 to-rose-500 group-hover:from-indigo-400 group-hover:to-rose-400'}
+                  ${files && files.length > 0 ? 'bg-emerald-500/80 shadow-[0_8px_32px_0_rgba(16,185,129,0.3)]' : 'bg-gradient-to-r from-indigo-500 to-rose-500 group-hover:from-indigo-400 group-hover:to-rose-400'}
                   transition-all duration-300 ease-in-out
                   group-hover:scale-110
                 `}
               >
-                {file ? (
+                {files && files.length > 0 ? (
                   <CheckCircle className="w-8 h-8 text-white" />
                 ) : (
                   <UploadCloud className="w-8 h-8 text-white" />
                 )}
               </motion.div>
-              {file ? (
-                <div className="text-lg font-medium text-slate-200 flex items-center mb-2">
-                  <FileText className="w-5 h-5 mr-2 text-indigo-300" />
-                  {file.name}
+              {files && files.length > 0 ? (
+                <div className="w-full mb-2">
+                  {files.map((f, i) => (
+                    <div key={i} className="text-sm font-medium text-slate-200 flex items-center justify-center mb-1">
+                      <FileText className="w-4 h-4 mr-2 text-indigo-300 flex-shrink-0" />
+                      <span className="truncate max-w-xs">{f.name}</span>
+                    </div>
+                  ))}
+                  <p className="text-white/40 text-xs mt-1">{files.length} file{files.length > 1 ? 's' : ''} selected</p>
                 </div>
               ) : (
                 <p className="text-lg font-medium text-white/80 mb-2">
-                  Drag & Drop your Resume (PDF, DOCX, TXT)
+                  Drag & Drop your Resumes (PDF, DOCX, TXT)
                 </p>
               )}
               <p className="text-white/40 mb-4">or</p>

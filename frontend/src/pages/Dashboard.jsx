@@ -15,7 +15,7 @@ import ReactMarkdown from 'react-markdown';
 function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [resumeFile, setResumeFile] = useState(null);
+  const [resumeFiles, setResumeFiles] = useState([]);
   const [jobDescription, setJobDescription] = useState('');
   const [jdFile, setJdFile] = useState(null);
   const [processing, setProcessing] = useState(false);
@@ -37,8 +37,8 @@ function Dashboard() {
     });
   };
 
-  const handleResumeUpload = (file) => {
-    setResumeFile(file);
+  const handleResumeUpload = (filesArray) => {
+    setResumeFiles(filesArray || []);
     setError(null);
   };
 
@@ -52,8 +52,8 @@ function Dashboard() {
   };
 
   const handleSubmitAnalysis = async () => {
-    if (!resumeFile) {
-      setError('Please upload a resume file.');
+    if (!resumeFiles || resumeFiles.length === 0) {
+      setError('Please upload at least one resume file.');
       return;
     }
     if (!jobDescription.trim() && !jdFile) {
@@ -88,7 +88,7 @@ function Dashboard() {
       }
 
       const formData = new FormData();
-      formData.append('files', resumeFile);
+      resumeFiles.forEach(f => formData.append('files', f));
       
       // Priority: If jdFile exists, use it; otherwise use text
       if (jdFile) {
@@ -195,9 +195,9 @@ function Dashboard() {
         }
       });
 
-      // Capture the element
+      // Capture the element — scale:1 keeps file size small
       const canvas = await html2canvas(reportElement, {
-        scale: 2,
+        scale: 1,
         backgroundColor: '#ffffff',
         logging: false,
         useCORS: true
@@ -213,8 +213,8 @@ function Dashboard() {
         }
       });
 
-      // Create PDF
-      const imgData = canvas.toDataURL('image/png');
+      // Use JPEG at 0.85 quality — vastly smaller than PNG
+      const imgData = canvas.toDataURL('image/jpeg', 0.85);
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -223,13 +223,27 @@ function Dashboard() {
 
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
-      const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = 10;
+      const margin = 10;
+      const usableWidth = pdfWidth - margin * 2;
+      const usableHeight = pdfHeight - margin * 2;
 
-      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+      // Scale image to fit page width
+      const ratio = usableWidth / canvas.width;
+      const scaledImgHeight = canvas.height * ratio;
+
+      // Multi-page: slide the image up by one page-height on each new page
+      let heightLeft = scaledImgHeight;
+      let yPosition = margin;
+
+      pdf.addImage(imgData, 'JPEG', margin, yPosition, usableWidth, scaledImgHeight);
+      heightLeft -= usableHeight;
+
+      while (heightLeft > 0) {
+        yPosition -= usableHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', margin, yPosition, usableWidth, scaledImgHeight);
+        heightLeft -= usableHeight;
+      }
 
       // Generate filename with date
       const date = new Date().toISOString().split('T')[0];
@@ -253,7 +267,7 @@ function Dashboard() {
         onJdFileUpload={handleJdFileUpload}
         processing={processing}
         onSubmitAnalysis={handleSubmitAnalysis}
-        file={resumeFile}
+        files={resumeFiles}
       />
 
       {/* Processing State */}
@@ -579,7 +593,7 @@ function Dashboard() {
             <button
               onClick={() => {
                 setResults(null);
-                setResumeFile(null);
+                setResumeFiles([]);
                 setJobDescription('');
                 setJdFile(null);
                 setError(null);
