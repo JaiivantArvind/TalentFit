@@ -10,3 +10,4 @@ supabase
 PyJWT
 gunicorn
 resend
+pytest>=7.4.0
