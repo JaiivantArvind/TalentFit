@@ -73,7 +73,7 @@ TalentFit AI solves these challenges through a dual-engine architecture:
 ### 4. Cloud Settings Sync & History
 - **Supabase Cloud Sync:** Stores customized recruiter weights and email signatures in PostgreSQL table `user_configs`.
 - **Screening History:** Persists past screening runs in `history` table with detailed drill-down modal inspection and record deletion.
-- **Defensive Unconfigured Fallback:** Includes a safe mock client in [`Frontend/src/supabaseClient.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/supabaseClient.js) that prevents application crashes when Supabase credentials are not yet supplied.
+- **Defensive Unconfigured Fallback:** Includes a safe mock client in [`frontend/src/supabaseClient.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/supabaseClient.js) that prevents application crashes when Supabase credentials are not yet supplied.
 
 ### 5. Client-Side PDF Export
 - Generates professional, multi-page candidate evaluation PDF reports directly in the browser via `html2canvas` and `jspdf`.
@@ -187,7 +187,7 @@ TalentFit/
 │       ├── test_keyword_matcher.py       # Skill presence & breadth scoring tests
 │       ├── test_parser.py                # Text extraction & email parsing tests
 │       └── test_semantic_matcher.py      # Cosine similarity math & seniority tests
-└── Frontend/                             # Vite React SPA
+└── frontend/                             # Vite React SPA
     ├── .env.example                      # Frontend environment template
     ├── .gitignore                        # Frontend exclusion rules (.env, dist, node_modules)
     ├── eslint.config.js                  # ESLint flat configuration
@@ -259,7 +259,7 @@ cd TalentFit
 ```
 
 ### Step 2: Bootstrap Configuration Files
-Copy `.env.example` templates to both the `backend/` and `Frontend/` directories:
+Copy `.env.example` templates to both the `backend/` and `frontend/` directories:
 ```bash
 # On Windows CMD
 copy backend\.env.example backend\.env
@@ -267,15 +267,15 @@ copy Frontend\.env.example Frontend\.env
 
 # On macOS / Linux
 cp backend/.env.example backend/.env
-cp Frontend/.env.example Frontend/.env
+cp frontend/.env.example frontend/.env
 ```
 
 ### Step 3: Populate API Credentials
-Open `backend/.env` and `Frontend/.env` in your editor:
+Open `backend/.env` and `frontend/.env` in your editor:
 1. **Google Gemini API Key:** Obtain from [Google AI Studio](https://aistudio.google.com/app/apikey). Insert into `backend/.env` under `GEMINI_API_KEY`.
 2. **Supabase Credentials:** Create a project at [Supabase Dashboard](https://supabase.com/dashboard).
    - In `backend/.env`: set `SUPABASE_URL` and `SUPABASE_KEY` (service role or anon key).
-   - In `Frontend/.env`: set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+   - In `frontend/.env`: set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 3. **Database Schema:** Open the Supabase SQL Editor and execute the schema DDL provided in [`init.md`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/init.md).
 4. **Resend Email API Key (Optional):** Create an API key at [Resend](https://resend.com/api-keys) and set `RESEND_API_KEY` in `backend/.env`.
 
@@ -292,7 +292,7 @@ Open `backend/.env` and `Frontend/.env` in your editor:
 | `RESEND_API_KEY` | Resend API key for dispatching recruitment emails | `re_123456...` | Optional (mailto/Gmail links remain functional) |
 | `PORT` | Flask backend listening port | `5000` | Optional (defaults to 5000) |
 
-### Frontend (`Frontend/.env`)
+### Frontend (`frontend/.env`)
 | Variable | Description | Example / Default | Required? |
 | :--- | :--- | :--- | :--- |
 | `VITE_SUPABASE_URL` | Client Supabase project endpoint | `https://xyz.supabase.co` | Optional (safe mock client used if missing) |
@@ -364,7 +364,7 @@ npm run dev
 cd Frontend
 npm run build
 ```
-*Compiles the optimized production bundle into `Frontend/dist/`.*
+*Compiles the optimized production bundle into `frontend/dist/`.*
 
 ---
 
@@ -483,7 +483,7 @@ Ensure that all TypeScript, JSX, and Tailwind CSS modules bundle cleanly:
 cd Frontend
 npm run build
 ```
-*Expected Output:* Exit code 0, 3,300+ modules transformed into `Frontend/dist/`.
+*Expected Output:* Exit code 0, 3,300+ modules transformed into `frontend/dist/`.
 
 ---
 

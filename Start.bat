@@ -88,20 +88,20 @@ if %ERRORLEVEL% neq 0 (
 REM 5. Frontend Dependencies Verification (Only install if missing)
 echo.
 echo [4/6] Verifying frontend dependencies...
-if not exist "Frontend\node_modules\" (
-    echo [INFO] Frontend node_modules directory missing. Running npm install...
-    pushd Frontend
+if not exist "frontend\node_modules\" (
+    echo [INFO] frontend node_modules directory missing. Running npm install...
+    pushd frontend
     call npm install
     if %ERRORLEVEL% neq 0 (
-        echo [ERROR] npm install failed in Frontend directory.
+        echo [ERROR] npm install failed in frontend directory.
         popd
         pause
         exit /b 1
     )
     popd
-    echo [OK] Frontend dependencies installed successfully.
+    echo [OK] frontend dependencies installed successfully.
 ) else (
-    echo [OK] Frontend dependencies verified - node_modules present.
+    echo [OK] frontend dependencies verified - node_modules present.
 )
 
 REM 6. Configuration Verification (Without exposing secrets)
@@ -117,13 +117,13 @@ if not exist "backend\.env" (
     )
 )
 
-if not exist "Frontend\.env" (
-    if exist "Frontend\.env.example" (
-        echo [INFO] Creating Frontend\.env from template...
-        copy "Frontend\.env.example" "Frontend\.env" >nul
-        echo [NOTICE] Frontend\.env created with default template.
+if not exist "frontend\.env" (
+    if exist "frontend\.env.example" (
+        echo [INFO] Creating frontend\.env from template...
+        copy "frontend\.env.example" "frontend\.env" >nul
+        echo [NOTICE] frontend\.env created with default template.
     ) else (
-        echo [WARNING] Frontend\.env and Frontend\.env.example not found!
+        echo [WARNING] frontend\.env and frontend\.env.example not found!
     )
 )
 
@@ -136,12 +136,12 @@ if %ERRORLEVEL% equ 0 (
     echo [OK] backend\.env configured - GEMINI_API_KEY detected.
 )
 
-findstr /I /C:"your_supabase_project_url" "Frontend\.env" >nul 2>nul
+findstr /I /C:"your_supabase_project_url" "frontend\.env" >nul 2>nul
 if %ERRORLEVEL% equ 0 (
-    echo [WARNING] VITE_SUPABASE_URL in Frontend\.env is set to placeholder value.
+    echo [WARNING] VITE_SUPABASE_URL in frontend\.env is set to placeholder value.
     echo           Authentication and cloud history will run in safe local stub mode.
 ) else (
-    echo [OK] Frontend\.env configured - Supabase credentials detected.
+    echo [OK] frontend\.env configured - Supabase credentials detected.
 )
 
 REM 7. Check for Duplicate Service Instances & Launch Order
@@ -194,7 +194,7 @@ if "!BACKEND_RUNNING!"=="0" (
 REM Launch Frontend if not already running
 if "!FRONTEND_RUNNING!"=="0" (
     echo [INFO] Starting Vite frontend on http://localhost:5173 in dedicated console...
-    start "TalentFit Frontend Port 5173" cmd /k "cd /d "%~dp0Frontend" && npm run dev"
+    start "TalentFit Frontend Port 5173" cmd /k "cd /d "%~dp0frontend" && npm run dev"
     ping 127.0.0.1 -n 3 >nul
 ) else (
     echo [SKIP] Skipping frontend launch as port 5173 is active.

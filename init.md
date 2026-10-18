@@ -12,7 +12,7 @@
 - **Current State:** Production-ready, fully modularized architecture. Backend Flask application factory with WSGI entry point, React 18 / Vite 5 SPA frontend, automated Windows launcher (`Start.bat`), and 100% passing automated test suite (16/16 tests passing).
 - **Application Entry Points:**
   - **Backend WSGI Entry Point:** [`backend/app.py`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/backend/app.py) (Exports `app = create_app()`, compatible with Gunicorn `app:app` in `Procfile` and CLI `python app.py`).
-  - **Frontend SPA Entry Point:** [`Frontend/index.html`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/index.html) $\rightarrow$ mounts [`Frontend/src/main.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/main.jsx).
+  - **Frontend SPA Entry Point:** [`frontend/index.html`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/index.html) $\rightarrow$ mounts [`frontend/src/main.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/main.jsx).
   - **Master Development Launcher:** [`Start.bat`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Start.bat) (One-click Windows developer orchestration).
 
 ---
@@ -88,7 +88,7 @@ TalentFit/
 │       ├── test_keyword_matcher.py       # Skill extraction, aliases, and 60% floor tests
 │       ├── test_parser.py                # Document parsing and email extraction tests
 │       └── test_semantic_matcher.py      # Cosine similarity math, piecewise scaling & seniority tests
-└── Frontend/                             # Vite React SPA Client
+└── frontend/                             # Vite React SPA Client
     ├── index.html                        # HTML entry point (references /src/main.jsx)
     ├── package.json                      # Pruned npm package manifest
     ├── package-lock.json                 # Pinned npm dependency lockfile
@@ -219,10 +219,10 @@ To stand up a pristine environment from scratch:
 | :--- | :--- | :--- | :--- |
 | **Turnkey Startup** | `Start.bat` | `TalentFit/` (Root) | Checks prerequisites, creates venv, checks dependencies, launches backend (:5000) & frontend (:5173) |
 | **Run Backend Manually** | `venv\Scripts\activate && python app.py` | `backend/` | Starts Flask development server on `http://127.0.0.1:5000` |
-| **Run Frontend Manually** | `npm run dev` | `Frontend/` | Starts Vite development server on `http://localhost:5173` |
+| **Run Frontend Manually** | `npm run dev` | `frontend/` | Starts Vite development server on `http://localhost:5173` |
 | **Run Pytest Suite** | `pytest` | `backend/` | Executes all 16 unit and API integration tests (16 passed in ~0.06s) |
 | **Verify WSGI Export** | `python -c "from app import app; print(app)"` | `backend/` | Validates WSGI app object loads cleanly without import errors |
-| **Build Frontend** | `npm run build` | `Frontend/` | Compiles optimized SPA bundle into `Frontend/dist/` (Exit code 0) |
+| **Build Frontend** | `npm run build` | `frontend/` | Compiles optimized SPA bundle into `frontend/dist/` (Exit code 0) |
 | **Backend Health Check**| `curl -s http://127.0.0.1:5000/` | Any | Returns `{"service":"TalentFit Backend","status":"healthy","version":"1.0.0"}` |
 | **Kill Port 5000** | `netstat -ano \| findstr :5000` $\rightarrow$ `taskkill /PID <PID> /F` | Any | Terminate orphaned backend process |
 | **Kill Port 5173** | `netstat -ano \| findstr :5173` $\rightarrow$ `taskkill /PID <PID> /F` | Any | Terminate orphaned frontend process |
@@ -238,9 +238,9 @@ To stand up a pristine environment from scratch:
 | `SUPABASE_KEY` | Backend (`config.py`) | `backend/.env` | Optional | `eyJhbGciOi...` (Anon/Service Role) | Supabase authentication/service key. |
 | `RESEND_API_KEY` | Backend (`config.py`) | `backend/.env` | Optional | `re_123456...` | Required for Resend transactional email dispatch. |
 | `PORT` | Backend (`app.py`) | `backend/.env` | Optional | `5000` (integer) | Flask listening port (defaults to 5000 if omitted). |
-| `VITE_SUPABASE_URL` | Frontend (`supabaseClient.js`) | `Frontend/.env` | Optional | `https://xyz.supabase.co` | Supabase client endpoint. If omitted, frontend uses defensive stub. |
-| `VITE_SUPABASE_ANON_KEY` | Frontend (`supabaseClient.js`) | `Frontend/.env` | Optional | `eyJhbGciOi...` (Anon Public Key) | Public Supabase anon key for client-side authentication. |
-| `VITE_API_URL` | Frontend (`api.js`) | `Frontend/.env` | Optional | `http://127.0.0.1:5000` | Target URL for backend REST API calls. |
+| `VITE_SUPABASE_URL` | Frontend (`supabaseClient.js`) | `frontend/.env` | Optional | `https://xyz.supabase.co` | Supabase client endpoint. If omitted, frontend uses defensive stub. |
+| `VITE_SUPABASE_ANON_KEY` | Frontend (`supabaseClient.js`) | `frontend/.env` | Optional | `eyJhbGciOi...` (Anon Public Key) | Public Supabase anon key for client-side authentication. |
+| `VITE_API_URL` | Frontend (`api.js`) | `frontend/.env` | Optional | `http://127.0.0.1:5000` | Target URL for backend REST API calls. |
 
 ---
 
@@ -266,16 +266,16 @@ To stand up a pristine environment from scratch:
 | `send_email_service()` | [`backend/app/services/email_service.py`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/backend/app/services/email_service.py) | Calls `resend.Emails.send()` with structured error handling. |
 | `analyze_bp` | [`backend/app/api/analyze.py`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/backend/app/api/analyze.py) | Handles `POST /analyze` multipart resume batch upload. |
 
-### Frontend Modules (`Frontend/src/`)
+### Frontend Modules (`frontend/src/`)
 | Module / Symbol | File Path | Responsibilities & Core Functions |
 | :--- | :--- | :--- |
-| `supabase` | [`Frontend/src/supabaseClient.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/supabaseClient.js) | Exports configured Supabase client or a defensive safe stub if keys are absent. |
-| `cn()` | [`Frontend/src/lib/utils.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/lib/utils.js) | Tailwind class merging combining `clsx` and `tailwind-merge`. |
-| `analysisService` | [`Frontend/src/services/analysisService.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/services/analysisService.js) | API methods for `analyzeResumes(formData)` and `fetchSettings()`. |
-| `settingsService` | [`Frontend/src/services/settingsService.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/services/settingsService.js) | API methods for `getSettings()` and `saveSettings(payload)`. |
-| `HeroSection` | [`Frontend/src/components/HeroSection.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/components/HeroSection.jsx) | Drag-and-drop resume upload zone and job description input. |
-| `Dashboard` | [`Frontend/src/pages/Dashboard.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/pages/Dashboard.jsx) | Results visualizer, score badges, skill chips, AI summaries, and PDF download. |
-| `EmailAssistant` | [`Frontend/src/pages/EmailAssistant.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/pages/EmailAssistant.jsx) | Candidate outreach composer with static templates, AI drafting, and Resend sending. |
+| `supabase` | [`frontend/src/supabaseClient.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/supabaseClient.js) | Exports configured Supabase client or a defensive safe stub if keys are absent. |
+| `cn()` | [`frontend/src/lib/utils.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/lib/utils.js) | Tailwind class merging combining `clsx` and `tailwind-merge`. |
+| `analysisService` | [`frontend/src/services/analysisService.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/services/analysisService.js) | API methods for `analyzeResumes(formData)` and `fetchSettings()`. |
+| `settingsService` | [`frontend/src/services/settingsService.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/services/settingsService.js) | API methods for `getSettings()` and `saveSettings(payload)`. |
+| `HeroSection` | [`frontend/src/components/HeroSection.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/components/HeroSection.jsx) | Drag-and-drop resume upload zone and job description input. |
+| `Dashboard` | [`frontend/src/pages/Dashboard.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/pages/Dashboard.jsx) | Results visualizer, score badges, skill chips, AI summaries, and PDF download. |
+| `EmailAssistant` | [`frontend/src/pages/EmailAssistant.jsx`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/pages/EmailAssistant.jsx) | Candidate outreach composer with static templates, AI drafting, and Resend sending. |
 
 ---
 
@@ -379,7 +379,7 @@ CREATE INDEX IF NOT EXISTS idx_history_user_id ON public.history(user_id, create
 1. **WSGI Module Precedence:** `backend/app.py` resides next to package directory `backend/app/`. Do not rename or eliminate `app = create_app()` inside [`backend/app/__init__.py`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/backend/app/__init__.py). Python imports `app/__init__.py` first when resolving `gunicorn app:app`.
 2. **Google Generative AI SDK:** Pinned to `google-generativeai>=0.8.0`. Do not upgrade to `google.genai` without rewriting the `genai.embed_content()` and `GenerativeModel` calls.
 3. **MUI Dependencies:** `@mui/material`, `@emotion/react`, and `@emotion/styled` were deliberately pruned in Phase 3. Do not re-add them. All UI styling is implemented via Tailwind CSS.
-4. **Vite Alias:** The `@` path alias in [`Frontend/vite.config.ts`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/vite.config.ts) resolves to `./src`. Relative imports to `@/lib/utils` depend on [`Frontend/src/lib/utils.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/src/lib/utils.js).
+4. **Vite Alias:** The `@` path alias in [`frontend/vite.config.ts`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/vite.config.ts) resolves to `./src`. Relative imports to `@/lib/utils` depend on [`frontend/src/lib/utils.js`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/src/lib/utils.js).
 
 ---
 
@@ -434,7 +434,7 @@ The following domain rules and formulas are mathematically invariant and must ne
 2. **Do Not Rescan the Repository:** Do not run recursive grep searches across the entire workspace to discover basic architecture. Use the [Canonical Directory Map](#3-canonical-directory-map) and [Core Module Map](#8-core-module-map) directly.
 3. **Inspect Relevant Code Before Editing:** Verify implementation details in the specific module file before altering code.
 4. **Preserve Invariants:** Do not alter the scoring formulas, Procfile commands, or WSGI app export conventions.
-5. **Execute Validation:** After modifying backend code, run `pytest` in `backend/`. After modifying frontend code, run `npm run build` in `Frontend/`.
+5. **Execute Validation:** After modifying backend code, run `pytest` in `backend/`. After modifying frontend code, run `npm run build` in `frontend/`.
 6. **Update Documentation:** If you add endpoints, modify configurations, or alter schemas, update `init.md`, `README.md`, and `PROJECT_AUDIT.md`.
 
 ---
@@ -444,7 +444,7 @@ The following domain rules and formulas are mathematically invariant and must ne
 | Entity | Canonical Source of Truth File |
 | :--- | :--- |
 | **Backend Dependencies** | [`backend/requirements.txt`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/backend/requirements.txt) |
-| **Frontend Dependencies** | [`Frontend/package.json`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/Frontend/package.json) |
+| **Frontend Dependencies** | [`frontend/package.json`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/frontend/package.json) |
 | **Environment Variables** | [`.env.example`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/.env.example) |
 | **Database Schema & RLS** | [`init.md` (Section 9)](#9-api-and-integration-contracts) |
 | **Canonical Skills & Aliases** | [`backend/app/utils/constants.py`](file:///d:/Work/My%20Projects/Talent%20Fit/T-1/TalentFit/backend/app/utils/constants.py) |
