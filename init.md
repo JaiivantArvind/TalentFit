@@ -348,12 +348,22 @@ CREATE TABLE IF NOT EXISTS public.user_configs (
     signature_name TEXT DEFAULT '',
     signature_role TEXT DEFAULT '',
     signature_company TEXT DEFAULT '',
+    resend_api_key TEXT DEFAULT '',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ALTER TABLE public.user_configs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users view own configs" ON public.user_configs FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users insert own configs" ON public.user_configs FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users update own configs" ON public.user_configs FOR UPDATE USING (auth.uid() = user_id);
+
+-- System Application Configuration Table (Cloud Key Resolution)
+CREATE TABLE IF NOT EXISTS public.app_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.app_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow read access to app_config" ON public.app_config FOR SELECT USING (true);
 
 -- Screening History Table
 CREATE TABLE IF NOT EXISTS public.history (

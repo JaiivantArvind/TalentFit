@@ -7,7 +7,8 @@ DEFAULT_SETTINGS = {
     'semantic_weight': 0.6,
     'signature_name': '',
     'signature_role': '',
-    'signature_company': ''
+    'signature_company': '',
+    'resend_api_key': ''
 }
 
 def get_user_settings(user_id, token=None):
@@ -72,6 +73,8 @@ def save_user_settings(user_id, incoming, token=None):
         'signature_role': incoming.get('signature_role', ''),
         'signature_company': incoming.get('signature_company', '')
     }
+    if 'resend_api_key' in incoming:
+        settings_payload['resend_api_key'] = incoming.get('resend_api_key', '')
 
     supabase = get_supabase_client()
     if not supabase:
@@ -100,4 +103,3 @@ def save_user_settings(user_id, incoming, token=None):
                 supabase.postgrest.auth(Config.SUPABASE_KEY)
             except Exception:
                 pass
-

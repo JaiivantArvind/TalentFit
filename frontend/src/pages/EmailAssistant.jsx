@@ -255,11 +255,16 @@ Recruitment Team`
     setSendSuccess(false);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const headers = session?.access_token
+        ? { 'Authorization': `Bearer ${session.access_token}` }
+        : {};
+
       const response = await axios.post(`${API_BASE_URL}/send-email`, {
         to_email: targetRecipient,
         subject: subject,
         email_content: body.replace(/\n/g, '<br>')
-      });
+      }, { headers });
 
       if (response.data.success) {
         setSendSuccess(true);

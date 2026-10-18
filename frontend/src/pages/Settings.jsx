@@ -18,6 +18,7 @@ function Settings() {
   const [signatureName, setSignatureName] = useState('');
   const [signatureRole, setSignatureRole] = useState('');
   const [signatureCompany, setSignatureCompany] = useState('');
+  const [resendApiKey, setResendApiKey] = useState('');
   
   // UI state
   const [loadingSettings, setLoadingSettings] = useState(true);
@@ -58,6 +59,7 @@ function Settings() {
             setSignatureName(parsed.signature_name || '');
             setSignatureRole(parsed.signature_role || '');
             setSignatureCompany(parsed.signature_company || '');
+            setResendApiKey(parsed.resend_api_key || '');
           } catch {}
         }
         setLoadingSettings(false);
@@ -78,6 +80,7 @@ function Settings() {
       setSignatureName(settings.signature_name || '');
       setSignatureRole(settings.signature_role || '');
       setSignatureCompany(settings.signature_company || '');
+      setResendApiKey(settings.resend_api_key || '');
       
       console.log('Settings loaded:', settings);
     } catch (error) {
@@ -93,6 +96,7 @@ function Settings() {
       setSignatureName('');
       setSignatureRole('');
       setSignatureCompany('');
+      setResendApiKey('');
     } finally {
       setLoadingSettings(false);
     }
@@ -126,7 +130,8 @@ function Settings() {
           semantic_weight: semanticWeight,
           signature_name: signatureName,
           signature_role: signatureRole,
-          signature_company: signatureCompany
+          signature_company: signatureCompany,
+          resend_api_key: resendApiKey
         };
         localStorage.setItem('talentfit_local_settings', JSON.stringify(localSettings));
         setShowSuccessMessage(true);
@@ -141,7 +146,8 @@ function Settings() {
         semantic_weight: semanticWeight,
         signature_name: signatureName,
         signature_role: signatureRole,
-        signature_company: signatureCompany
+        signature_company: signatureCompany,
+        resend_api_key: resendApiKey
       });
 
       // Call backend with auth token
@@ -150,7 +156,8 @@ function Settings() {
         semantic_weight: semanticWeight,
         signature_name: signatureName,
         signature_role: signatureRole,
-        signature_company: signatureCompany
+        signature_company: signatureCompany,
+        resend_api_key: resendApiKey
       }, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
@@ -180,6 +187,7 @@ function Settings() {
     setSignatureName('');
     setSignatureRole('');
     setSignatureCompany('');
+    setResendApiKey('');
   };
 
   const handleKeywordWeightChange = (value) => {
@@ -427,6 +435,23 @@ function Settings() {
                       </div>
                     </div>
                   )}
+
+                  {/* Resend API Key Configuration */}
+                  <div className="pt-4 border-t border-white/10">
+                    <label className="block text-white/80 font-medium text-sm mb-1">
+                      Custom Resend API Key <span className="text-white/40 text-xs font-normal">(Optional)</span>
+                    </label>
+                    <p className="text-white/50 text-xs mb-2">
+                      If provided, outreach emails will be dispatched using your personal Resend key (starts with <code className="text-purple-300">re_</code>).
+                    </p>
+                    <input
+                      type="password"
+                      value={resendApiKey}
+                      onChange={(e) => setResendApiKey(e.target.value)}
+                      placeholder="re_••••••••••••••••••••••••"
+                      className="w-full px-4 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/30 focus:outline-none focus:border-purple-500/50 focus:ring-2 focus:ring-purple-500/20 transition-all font-mono text-sm"
+                    />
+                  </div>
                 </div>
               </div>
 
